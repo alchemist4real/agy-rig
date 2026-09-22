@@ -1,0 +1,35 @@
+# Security & Credentials (NEVER COMMIT!)
+accounts/
+credits/
+active_account.txt
+*.dat
+*.token
+*.credential
+*.key
+
+# Temporary test files & scratch scripts
+test-*.ps1
+check-*.ps1
+truncate.ps1
+update-shortcut.ps1
+gen-icon.ps1
+switch-menu.ps1
+install.ps1
+
+# Render previews & screenshots
+*.png
+!agy-rig.png
+!docs/*.png
+*.jpg
+*.jpeg
+
+# Logs & cache
+*.log
+*.tmp
+.system_generated/
+__pycache__/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
