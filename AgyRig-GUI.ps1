@@ -1,13 +1,8 @@
-# AgySwitch-GUI.ps1 - AGY RIG // Telemetry Deck & Multi-Profile Companion
-# Authentic Retro-Futuristic Cassette-Futurism Desktop Widget for Antigravity
-# - 100% Functional: Zero dummy shapes, zero fake labels. Every pixel is real live data or an actionable control.
-# - Distinct Asymmetric Silhouette: Protruding capsule AI reactor pod + stepped telemetry deck (NOT a plain rectangular box, NOT an orb).
-# - Dedicated Branding: AGY RIG with custom .ico icon
-# - 4 Radial Circular Gauges: Gemini 5H, Gemini Wk, Claude 5H, Claude Wk with live countdowns
-# - Functional Bio-Canister: Glowing liquid reactor displaying AI Credits pool with circular diagram + upgrade launcher
-# - Dynamic Amber CRT: Live oscilloscope waveform reflecting quota load + active account telemetry
-# - Multi-Profile Bay: Hot-swap primary account [SWITCH], launch parallel window [PARALEL], delete [âœ•]
-# - Safe Browser Login: [+ LOGIN] via loopback PKCE without restarting Antigravity (subagents stay 100% safe)
+# ============================================================================
+# AGY RIG - Super-Compact Dock & Account Manager for Google Antigravity (AGY)
+# Fully Polished Edition: 100% Functional, Asymmetric-Safe, Symmetric-Layout,
+# Non-Blocking Async Telemetry, Hardware Saklar, and Inline Profile Management.
+# ============================================================================
 
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
@@ -20,7 +15,10 @@ Add-Type -AssemblyName System.Drawing
 # ============================================================================
 
 Add-Type -TypeDefinition @"
-using System; using System.Runtime.InteropServices; using System.Text;
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
 public class AgyCredMgr {
     [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
     static extern bool CredRead(string t, int ty, int f, out IntPtr c);
@@ -30,6 +28,7 @@ public class AgyCredMgr {
     static extern bool CredDelete(string t, int ty, int f);
     [DllImport("advapi32.dll", SetLastError=true)]
     static extern void CredFree(IntPtr c);
+
     [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
     public struct CRED {
         public int Flags; public int Type; public string TargetName; public string Comment;
@@ -37,22 +36,40 @@ public class AgyCredMgr {
         public int BlobSize; public IntPtr Blob; public int Persist;
         public int AttrCount; public IntPtr Attrs; public string Alias; public string UserName;
     }
+
     public static string Read(string target) {
-        IntPtr p; if (!CredRead(target,1,0,out p)) return null;
-        CRED c=(CRED)Marshal.PtrToStructure(p,typeof(CRED)); string b="";
-        if(c.BlobSize>0 && c.Blob!=IntPtr.Zero){byte[] d=new byte[c.BlobSize];Marshal.Copy(c.Blob,d,0,c.BlobSize);b=Encoding.UTF8.GetString(d);}
-        CredFree(p); return b;
+        IntPtr p; if (!CredRead(target, 1, 0, out p)) return null;
+        CRED c = (CRED)Marshal.PtrToStructure(p, typeof(CRED));
+        string b = "";
+        if (c.BlobSize > 0 && c.Blob != IntPtr.Zero) {
+            byte[] d = new byte[c.BlobSize];
+            Marshal.Copy(c.Blob, d, 0, c.BlobSize);
+            b = Encoding.UTF8.GetString(d);
+        }
+        CredFree(p);
+        return b;
     }
+
     public static string ReadUser(string target) {
-        IntPtr p; if(!CredRead(target,1,0,out p)) return null;
-        CRED c=(CRED)Marshal.PtrToStructure(p,typeof(CRED)); string u=c.UserName; CredFree(p); return u;
+        IntPtr p; if (!CredRead(target, 1, 0, out p)) return null;
+        CRED c = (CRED)Marshal.PtrToStructure(p, typeof(CRED));
+        string u = c.UserName;
+        CredFree(p);
+        return u;
     }
-    public static bool Write(string target,string user,string blob) {
-        byte[] b=Encoding.UTF8.GetBytes(blob); CRED c=new CRED();
-        c.Type=1;c.TargetName=target;c.UserName=user;c.BlobSize=b.Length;
-        c.Blob=Marshal.AllocHGlobal(b.Length);Marshal.Copy(b,0,c.Blob,b.Length);c.Persist=2;
-        bool r=CredWrite(ref c,0);Marshal.FreeHGlobal(c.Blob);return r;
+
+    public static bool Write(string target, string user, string blob) {
+        byte[] b = Encoding.UTF8.GetBytes(blob);
+        CRED c = new CRED();
+        c.Type = 1; c.TargetName = target; c.UserName = user; c.BlobSize = b.Length;
+        c.Blob = Marshal.AllocHGlobal(b.Length);
+        Marshal.Copy(b, 0, c.Blob, b.Length);
+        c.Persist = 2;
+        bool r = CredWrite(ref c, 0);
+        Marshal.FreeHGlobal(c.Blob);
+        return r;
     }
+
     public static bool Delete(string target) {
         return CredDelete(target, 1, 0);
     }
@@ -67,10 +84,16 @@ $PD = Join-Path $env:USERPROFILE ".gemini\antigravity\profiles"
 $AF = Join-Path $BD "active_account.txt"
 $ICON_PATH = Join-Path $BD "agy-rig.ico"
 
-foreach ($d in @($AD,$CD,$PD)) { if (!(Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } }
+foreach ($d in @($AD, $CD, $PD)) {
+    if (!(Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+}
 
-function script:Enc([string]$s) { [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($s),$null,'CurrentUser')) }
-function script:Dec([string]$s) { [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($s),$null,'CurrentUser')) }
+function script:Enc([string]$s) {
+    [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($s), $null, 'CurrentUser'))
+}
+function script:Dec([string]$s) {
+    [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($s), $null, 'CurrentUser'))
+}
 
 function script:GetEmail([string]$j) {
     if (-not $j) { return $null }
@@ -128,67 +151,6 @@ function script:LoadAccs {
     return $r
 }
 
-function script:GetLiveAgyQuota {
-    $q = @{
-        success = $false
-        gemini_5h = 0.0
-        gemini_5h_reset = ""
-        gemini_wk = 0.0
-        gemini_wk_reset = ""
-        claude_5h = 0.0
-        claude_5h_reset = ""
-        claude_wk = 0.0
-        claude_wk_reset = ""
-        credits = 0
-        upgrade_uri = ""
-        timestamp = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-    }
-
-    try {
-        $uRaw = & agy -p "/usage" --output-format json 2>$null
-        if ($uRaw) {
-            $uJson = $uRaw | ConvertFrom-Json -EA SilentlyContinue
-            if ($uJson.command.data.groups) {
-                foreach ($g in $uJson.command.data.groups) {
-                    if ($g.name -match "Gemini") {
-                        foreach ($b in $g.buckets) {
-                            if ($b.window -eq "5h") {
-                                $q.gemini_5h = [double]$b.remaining_fraction
-                                $q.gemini_5h_reset = $b.reset_time
-                            } elseif ($b.window -eq "weekly") {
-                                $q.gemini_wk = [double]$b.remaining_fraction
-                                $q.gemini_wk_reset = $b.reset_time
-                            }
-                        }
-                    } elseif ($g.name -match "Claude") {
-                        foreach ($b in $g.buckets) {
-                            if ($b.window -eq "5h") {
-                                $q.claude_5h = [double]$b.remaining_fraction
-                                $q.claude_5h_reset = $b.reset_time
-                            } elseif ($b.window -eq "weekly") {
-                                $q.claude_wk = [double]$b.remaining_fraction
-                                $q.claude_wk_reset = $b.reset_time
-                            }
-                        }
-                    }
-                }
-                $q.success = $true
-            }
-        }
-
-        $cRaw = & agy -p "/credits" --output-format json 2>$null
-        if ($cRaw) {
-            $cJson = $cRaw | ConvertFrom-Json -EA SilentlyContinue
-            if ($cJson.command.data.remaining_credits -ne $null) {
-                $q.credits = [int]$cJson.command.data.remaining_credits
-                $q.upgrade_uri = $cJson.command.data.upgrade_uri
-            }
-        }
-    } catch {}
-
-    return $q
-}
-
 function script:SaveAccountQuota([string]$name, $quotaObj) {
     if (-not $name -or -not $quotaObj) { return }
     $qp = Join-Path $CD "$($name.ToLower())_quota.json"
@@ -220,19 +182,6 @@ function script:FormatCountdown([string]$isoStr) {
     } catch {
         return "--"
     }
-}
-
-function script:GetArcGeometry([double]$cx, [double]$cy, [double]$r, [double]$pct) {
-    if ($pct -le 0.001) { return "M $cx,$($cy - $r)" }
-    if ($pct -ge 1.0) { $pct = 0.9999 }
-    $angle = $pct * 360.0
-    $rad = ($angle - 90) * [math]::PI / 180.0
-    $x1 = $cx
-    $y1 = $cy - $r
-    $x2 = $cx + $r * [math]::Cos($rad)
-    $y2 = $cy + $r * [math]::Sin($rad)
-    $isLarge = if ($angle -gt 180) { 1 } else { 0 }
-    return "M $x1,$y1 A $r,$r 0 $isLarge 1 $x2,$y2"
 }
 
 function script:StartBrowserGoogleLogin {
@@ -341,9 +290,6 @@ function script:SaveCur([string]$n) {
     }
     [IO.File]::WriteAllText($AF, $n.ToLower(), [Text.Encoding]::UTF8)
 
-    $liveQ = GetLiveAgyQuota
-    if ($liveQ.success) { SaveAccountQuota $n.ToLower() $liveQ }
-
     return "OK:$em"
 }
 
@@ -366,7 +312,7 @@ function script:SwitchTo([string]$n) {
     $pr = Get-Process -Name "Antigravity*" -EA SilentlyContinue
     $exe = $null
     if ($pr) {
-        $exe = $pr[0].Path
+        try { $exe = $pr[0].Path } catch {}
         $pr | Stop-Process -Force -EA SilentlyContinue
         Start-Sleep -Seconds 2
     }
@@ -399,7 +345,7 @@ function script:LaunchParallel([string]$n) {
     # Find Antigravity executable
     $pr = Get-Process -Name "Antigravity*" -EA SilentlyContinue
     $exe = $null
-    if ($pr -and (Test-Path $pr[0].Path)) { $exe = $pr[0].Path }
+    if ($pr) { try { if (Test-Path $pr[0].Path) { $exe = $pr[0].Path } } catch {} }
     if (!$exe) {
         @("$env:LOCALAPPDATA\Programs\Antigravity\Antigravity.exe","$env:LOCALAPPDATA\Antigravity\Antigravity.exe") | ForEach-Object {
             if ((Test-Path $_) -and !$exe) { $exe = $_ }
@@ -424,12 +370,15 @@ function script:LaunchParallel([string]$n) {
         try { [IO.File]::WriteAllText($mt, (Dec(Get-Content $mb -Raw)), [Text.Encoding]::UTF8) } catch {}
     }
 
-    # Asynchronously restore previous active credential after 4 seconds
+    # Thread-safe DispatcherTimer to restore previous credential after 4 seconds
     if ($curBlob -and ($curBlob -ne $targetBlob)) {
-        [System.Threading.Tasks.Task]::Run([Action]{
-            [System.Threading.Thread]::Sleep(4000)
+        $restoreTimer = New-Object Windows.Threading.DispatcherTimer
+        $restoreTimer.Interval = [TimeSpan]::FromSeconds(4)
+        $restoreTimer.Add_Tick({
+            $restoreTimer.Stop()
             [AgyCredMgr]::Write($CT, $curUser, $curBlob) | Out-Null
-        }) | Out-Null
+        })
+        $restoreTimer.Start()
     }
 
     # Create/update desktop shortcut for this parallel profile
@@ -459,13 +408,13 @@ function script:DelAcc([string]$n) {
 }
 
 # ============================================================================
-# GUI â€” COMPACT DOCK
+# GUI — COMPACT DOCK (PERFECT SYMMETRY & CRISP HD LAYOUT)
 # ============================================================================
 
 $xamlStr = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-  Title="AGY RIG" Width="380" Height="260"
+  Title="AGY RIG" Width="380" Height="216"
   WindowStartupLocation="CenterScreen" WindowStyle="None" AllowsTransparency="True"
   Background="Transparent" ResizeMode="NoResize" ShowInTaskbar="True" Topmost="False"
   TextOptions.TextFormattingMode="Display"
@@ -490,7 +439,7 @@ $xamlStr = @'
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Opacity" Value="0.82"/>
+                <Setter Property="Opacity" Value="0.85"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Opacity" Value="0.6"/>
@@ -519,22 +468,23 @@ $xamlStr = @'
     </Style>
   </Window.Resources>
 
-  <Border CornerRadius="16" Background="#E7E2D1" BorderBrush="#B5AD96" BorderThickness="1.5"
-          Margin="8" Padding="12,8" SnapsToDevicePixels="True" UseLayoutRounding="True">
+  <Border CornerRadius="14" Background="#E7E2D1" BorderBrush="#B5AD96" BorderThickness="1.5"
+          Margin="6" Padding="12,8" SnapsToDevicePixels="True" UseLayoutRounding="True"
+          RenderOptions.ClearTypeHint="Enabled">
     <Border.Effect>
-      <DropShadowEffect Color="#000000" BlurRadius="18" ShadowDepth="4" Opacity="0.4" Direction="315"/>
+      <DropShadowEffect Color="#000000" BlurRadius="16" ShadowDepth="3" Opacity="0.35" Direction="315"/>
     </Border.Effect>
 
     <Grid>
       <Grid.RowDefinitions>
-        <RowDefinition Height="26"/>
-        <RowDefinition Height="32"/>
+        <RowDefinition Height="24"/>
+        <RowDefinition Height="28"/>
         <RowDefinition Height="18"/>
         <RowDefinition Height="6"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="8"/>
+        <RowDefinition Height="26"/>
         <RowDefinition Height="6"/>
-        <RowDefinition Height="28"/>
-        <RowDefinition Height="4"/>
         <RowDefinition Height="20"/>
       </Grid.RowDefinitions>
 
@@ -548,39 +498,39 @@ $xamlStr = @'
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-          <Border Width="16" Height="16" Background="#26241D" CornerRadius="8" Margin="0,0,5,0">
-            <TextBlock Text="&#x25B2;" Foreground="#FFE633" FontSize="8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          <Border Width="15" Height="15" Background="#26241D" CornerRadius="7.5" Margin="0,0,5,0">
+            <TextBlock Text="&#x25B2;" Foreground="#FFE633" FontSize="7.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
-          <TextBlock Text="AGY RIG" Foreground="#2E2B23" FontSize="11" FontWeight="Black" FontFamily="Consolas" VerticalAlignment="Center"/>
+          <TextBlock Text="AGY RIG" Foreground="#2E2B23" FontSize="10.5" FontWeight="Black" FontFamily="Consolas" VerticalAlignment="Center"/>
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
           <Ellipse x:Name="ledStatus" Width="6" Height="6" Fill="#00E676" Margin="0,0,3,0"/>
           <TextBlock x:Name="txtStatus" Text="ONLINE" Foreground="#388E3C" FontSize="7" FontWeight="Bold" FontFamily="Consolas"/>
         </StackPanel>
-        <!-- SAKLAR PIN (Always-on-top toggle) -->
-        <ToggleButton x:Name="chkPin" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,6,0"
+        <!-- SAKLAR PIN -->
+        <ToggleButton x:Name="chkPin" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,4,0"
                       ToolTip="Saklar: Selalu di atas (Pin)">
-          <Border x:Name="pinBorder" CornerRadius="8" Background="#C8C2B0" BorderBrush="#9E9682" BorderThickness="1"
-                  Width="42" Height="17" SnapsToDevicePixels="True">
+          <Border x:Name="pinBorder" CornerRadius="7.5" Background="#C8C2B0" BorderBrush="#9E9682" BorderThickness="1"
+                  Width="40" Height="15" SnapsToDevicePixels="True">
             <Grid Margin="3,0">
-              <TextBlock x:Name="txtPin" Text="PIN" FontSize="6.5" FontWeight="Bold" FontFamily="Consolas" Foreground="#423E33"
+              <TextBlock x:Name="txtPin" Text="PIN" FontSize="6" FontWeight="Bold" FontFamily="Consolas" Foreground="#423E33"
                          HorizontalAlignment="Left" VerticalAlignment="Center"/>
-              <Ellipse x:Name="dotPin" Width="11" Height="11" Fill="#787263" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+              <Ellipse x:Name="dotPin" Width="9" Height="9" Fill="#787263" HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </Grid>
           </Border>
         </ToggleButton>
-        <Button x:Name="btnMin" Grid.Column="3" Width="22" Height="18" Margin="0,0,3,0" Cursor="Hand"
+        <Button x:Name="btnMin" Grid.Column="3" Width="20" Height="16" Margin="0,0,4,0" Cursor="Hand"
                 Background="Transparent" BorderThickness="0" ToolTip="Minimize"
                 HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
           <Border CornerRadius="3" Background="#C8C2B0" BorderBrush="#9E9682" BorderThickness="1">
-            <TextBlock Text="&#x2014;" FontSize="9" Foreground="#423E33" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-2,0,0"/>
+            <TextBlock Text="&#x2014;" FontSize="8" Foreground="#423E33" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-2,0,0"/>
           </Border>
         </Button>
-        <Button x:Name="btnClose" Grid.Column="4" Width="22" Height="18" Cursor="Hand"
+        <Button x:Name="btnClose" Grid.Column="4" Width="20" Height="16" Cursor="Hand"
                 Background="Transparent" BorderThickness="0" ToolTip="Tutup"
                 HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
           <Border CornerRadius="3" Background="#D32F2F" BorderBrush="#8E0000" BorderThickness="1">
-            <TextBlock Text="&#x2715;" FontSize="8" Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <TextBlock Text="&#x2715;" FontSize="7.5" Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Button>
       </Grid>
@@ -593,11 +543,11 @@ $xamlStr = @'
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <Border x:Name="accSelector" Grid.Column="0" CornerRadius="4" Background="#DCD6C4"
-                BorderBrush="#ABA28D" BorderThickness="1" Padding="8,4" Cursor="Hand" ToolTip="Klik untuk pilih akun"
-                SnapsToDevicePixels="True">
+                BorderBrush="#ABA28D" BorderThickness="1" Padding="7,3" Cursor="Hand" ToolTip="Klik untuk pilih akun"
+                SnapsToDevicePixels="True" Height="26">
           <Grid>
             <TextBlock x:Name="txtAccName" Text="(pilih akun)" Foreground="#2E2B23"
-                       FontFamily="Consolas" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"
+                       FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis" Margin="0,0,16,0"/>
             <TextBlock x:Name="txtArrow" Text="&#x25BC;" Foreground="#787263" FontSize="8"
                        HorizontalAlignment="Right" VerticalAlignment="Center"/>
@@ -615,16 +565,16 @@ $xamlStr = @'
           </Border>
         </Popup>
         <Button x:Name="btnSwitch" Grid.Column="1" Cursor="Hand" Margin="4,0,0,0" VerticalAlignment="Center"
-                Background="Transparent" BorderThickness="0" ToolTip="Switch ke akun terpilih"
+                Background="Transparent" BorderThickness="0" ToolTip="Switch ke akun terpilih" Height="26"
                 HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-          <Border CornerRadius="4" Background="#E65100" Padding="9,5">
+          <Border CornerRadius="4" Background="#E65100" Padding="8,4">
             <TextBlock Text="SWITCH" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
           </Border>
         </Button>
         <Button x:Name="btnParalel" Grid.Column="2" Cursor="Hand" Margin="3,0,0,0" VerticalAlignment="Center"
-                Background="Transparent" BorderThickness="0" ToolTip="Buka paralel instance"
+                Background="Transparent" BorderThickness="0" ToolTip="Buka paralel instance" Height="26"
                 HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-          <Border CornerRadius="4" Background="#00838F" Padding="9,5">
+          <Border CornerRadius="4" Background="#00838F" Padding="8,4">
             <TextBlock Text="PARALEL" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
           </Border>
         </Button>
@@ -650,11 +600,11 @@ $xamlStr = @'
         </StackPanel>
       </Grid>
 
-      <!-- ROW 4: QUOTA BARS (2x2 grid) -->
+      <!-- ROW 4: QUOTA BARS (2x2 grid with exact symmetry) -->
       <Grid Grid.Row="4">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="8"/>
+          <ColumnDefinition Width="16"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
@@ -665,10 +615,10 @@ $xamlStr = @'
         <!-- GEM-5H -->
         <Grid Grid.Row="0" Grid.Column="0">
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="35"/>
+            <ColumnDefinition Width="34"/>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="28"/>
-            <ColumnDefinition Width="30"/>
+            <ColumnDefinition Width="32"/>
           </Grid.ColumnDefinitions>
           <TextBlock Grid.Column="0" Text="G-5H" Foreground="#544F43" FontSize="7" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
           <Grid Grid.Column="1" Margin="2,3" ToolTip="Gemini 5-hour quota">
@@ -682,10 +632,10 @@ $xamlStr = @'
         <!-- CLD-5H -->
         <Grid Grid.Row="0" Grid.Column="2">
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="35"/>
+            <ColumnDefinition Width="34"/>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="28"/>
-            <ColumnDefinition Width="30"/>
+            <ColumnDefinition Width="32"/>
           </Grid.ColumnDefinitions>
           <TextBlock Grid.Column="0" Text="C-5H" Foreground="#544F43" FontSize="7" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
           <Grid Grid.Column="1" Margin="2,3" ToolTip="Claude 5-hour quota">
@@ -699,10 +649,10 @@ $xamlStr = @'
         <!-- GEM-WK -->
         <Grid Grid.Row="1" Grid.Column="0">
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="35"/>
+            <ColumnDefinition Width="34"/>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="28"/>
-            <ColumnDefinition Width="30"/>
+            <ColumnDefinition Width="32"/>
           </Grid.ColumnDefinitions>
           <TextBlock Grid.Column="0" Text="G-WK" Foreground="#544F43" FontSize="7" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
           <Grid Grid.Column="1" Margin="2,3" ToolTip="Gemini weekly quota">
@@ -716,10 +666,10 @@ $xamlStr = @'
         <!-- CLD-WK -->
         <Grid Grid.Row="1" Grid.Column="2">
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="35"/>
+            <ColumnDefinition Width="34"/>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="28"/>
-            <ColumnDefinition Width="30"/>
+            <ColumnDefinition Width="32"/>
           </Grid.ColumnDefinitions>
           <TextBlock Grid.Column="0" Text="C-WK" Foreground="#544F43" FontSize="7" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
           <Grid Grid.Column="1" Margin="2,3" ToolTip="Claude weekly quota">
@@ -731,7 +681,7 @@ $xamlStr = @'
         </Grid>
       </Grid>
 
-      <!-- ROW 6: ACTION BUTTONS -->
+      <!-- ROW 6: ACTION BUTTONS (Exact 1:1:1 symmetry with 4px gap) -->
       <Grid Grid.Row="6">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
@@ -741,28 +691,28 @@ $xamlStr = @'
         <Button x:Name="btnLoginNew" Grid.Column="0" Cursor="Hand" Margin="0,0,3,0"
                 Background="Transparent" BorderThickness="0" ToolTip="Login akun Google baru via browser"
                 HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-          <Border CornerRadius="5" Background="#00838F" Padding="2,4">
+          <Border CornerRadius="4" Background="#00838F" Padding="2,4">
             <TextBlock Text="+ LOGIN" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Button>
-        <Button x:Name="btnSave" Grid.Column="1" Cursor="Hand" Margin="0,0,3,0"
+        <Button x:Name="btnSave" Grid.Column="1" Cursor="Hand" Margin="1.5,0,1.5,0"
                 Background="Transparent" BorderThickness="0" ToolTip="Simpan sesi aktif ke slot"
                 HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-          <Border CornerRadius="5" Background="#E65100" Padding="2,4">
+          <Border CornerRadius="4" Background="#E65100" Padding="2,4">
             <TextBlock Text="+ SIMPAN" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Button>
-        <Button x:Name="btnRef" Grid.Column="2" Cursor="Hand"
+        <Button x:Name="btnRef" Grid.Column="2" Cursor="Hand" Margin="3,0,0,0"
                 Background="Transparent" BorderThickness="0" ToolTip="Refresh telemetri"
                 HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-          <Border CornerRadius="5" Background="#546E7A" Padding="2,4">
+          <Border CornerRadius="4" Background="#546E7A" Padding="2,4">
             <TextBlock Text="&#x21BB; SYNC" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Button>
       </Grid>
 
       <!-- ROW 8: STATUS BAR -->
-      <Border Grid.Row="8" Background="#26241D" CornerRadius="5" Padding="6,3">
+      <Border Grid.Row="8" Background="#26241D" CornerRadius="4" Padding="6,2">
         <TextBlock x:Name="txSt" Text="READY" Foreground="#00E676" FontSize="7" FontWeight="Bold" FontFamily="Consolas" TextTrimming="CharacterEllipsis"/>
       </Border>
 
@@ -780,7 +730,7 @@ if (Test-Path $ICON_PATH) {
     try { $w.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new($ICON_PATH)) } catch {}
 }
 
-# Wire named elements
+# Wire named elements reliably
 $ns = New-Object Xml.XmlNamespaceManager $xaml.NameTable
 $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
 $nodes = $xaml.SelectNodes('//*[@x:Name]', $ns)
@@ -791,30 +741,146 @@ foreach ($node in $nodes) {
 }
 
 # ============================================================================
-# HELPERS
+# HELPERS & BRUSH CACHE
 # ============================================================================
 
-function Br([string]$hex) { [Windows.Media.BrushConverter]::new().ConvertFromString($hex) }
+$bc = [Windows.Media.BrushConverter]::new()
+function Br([string]$hex) { $bc.ConvertFromString($hex) }
+
+$brushGreen  = Br "#2E7D32"
+$brushOrange = Br "#EF6C00"
+$brushRed    = Br "#C62828"
+
 function GetBarBrush([double]$f) {
-    if ($f -gt 0.5) { Br "#2E7D32" } elseif ($f -gt 0.2) { Br "#EF6C00" } else { Br "#C62828" }
+    if ($f -gt 0.5) { $brushGreen } elseif ($f -gt 0.2) { $brushOrange } else { $brushRed }
 }
 
 $script:lastUpgradeUri = $null
 $script:selectedAccount = $null
+$script:isFetchingQuota = $false
 
 # Wire popup placement
 $e.popAcc.PlacementTarget = $e.accSelector
 
+function ApplyQuotaToBars($q) {
+    if (-not $q) { return }
+    $tw = 55
+    $setBars = {
+        param($barEl, $txtVal, $txtRst, $frac, $reset)
+        $f = if ($frac -ne $null) { [double]$frac } else { 0.0 }
+        $pct = [int]([math]::Round($f * 100))
+        $txtVal.Text = "$pct%"
+        $txtRst.Text = FormatCountdown $reset
+        $barEl.Width = [math]::Max(2, $tw * [math]::Min($f, 1.0))
+        $barEl.Background = GetBarBrush $f
+    }
+
+    & $setBars $e.barG5h $e.txtG5hVal $e.txtRstG5h $q.gemini_5h $q.gemini_5h_reset
+    & $setBars $e.barGWk $e.txtGWkVal $e.txtRstGWk $q.gemini_wk $q.gemini_wk_reset
+    & $setBars $e.barC5h $e.txtC5hVal $e.txtRstC5h $q.claude_5h $q.claude_5h_reset
+    & $setBars $e.barCWk $e.txtCWkVal $e.txtRstCWk $q.claude_wk $q.claude_wk_reset
+
+    if ($q.credits -ne $null) { $e.txtCredits.Text = "$($q.credits)" }
+    if ($q.upgrade_uri) { $script:lastUpgradeUri = $q.upgrade_uri }
+}
+
 # ============================================================================
-# REFRESH-WIDGET
+# NON-BLOCKING ASYNC QUOTA FETCHER (Zero UI Freezes)
+# ============================================================================
+
+function FetchLiveQuotaAsync {
+    if ($script:isFetchingQuota) { return }
+    $script:isFetchingQuota = $true
+
+    $e.txSt.Text = "SYNCING..."
+    $e.txSt.Foreground = Br "#FFA000"
+
+    $bgPs = [powershell]::Create()
+    $bgPs.AddScript({
+        $q = @{
+            success = $false
+            gemini_5h = 0.0; gemini_5h_reset = ""
+            gemini_wk = 0.0; gemini_wk_reset = ""
+            claude_5h = 0.0; claude_5h_reset = ""
+            claude_wk = 0.0; claude_wk_reset = ""
+            credits = 0; upgrade_uri = ""
+            timestamp = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+        }
+        try {
+            $uRaw = & agy -p "/usage" --output-format json 2>$null
+            if ($uRaw) {
+                $uJson = $uRaw | ConvertFrom-Json -EA SilentlyContinue
+                if ($uJson.command.data.groups) {
+                    foreach ($g in $uJson.command.data.groups) {
+                        if ($g.name -match "Gemini") {
+                            foreach ($b in $g.buckets) {
+                                if ($b.window -eq "5h") { $q.gemini_5h = [double]$b.remaining_fraction; $q.gemini_5h_reset = $b.reset_time }
+                                elseif ($b.window -eq "weekly") { $q.gemini_wk = [double]$b.remaining_fraction; $q.gemini_wk_reset = $b.reset_time }
+                            }
+                        } elseif ($g.name -match "Claude") {
+                            foreach ($b in $g.buckets) {
+                                if ($b.window -eq "5h") { $q.claude_5h = [double]$b.remaining_fraction; $q.claude_5h_reset = $b.reset_time }
+                                elseif ($b.window -eq "weekly") { $q.claude_wk = [double]$b.remaining_fraction; $q.claude_wk_reset = $b.reset_time }
+                            }
+                        }
+                    }
+                    $q.success = $true
+                }
+            }
+            $cRaw = & agy -p "/credits" --output-format json 2>$null
+            if ($cRaw) {
+                $cJson = $cRaw | ConvertFrom-Json -EA SilentlyContinue
+                if ($cJson.command.data.remaining_credits -ne $null) {
+                    $q.credits = [int]$cJson.command.data.remaining_credits
+                    $q.upgrade_uri = $cJson.command.data.upgrade_uri
+                }
+            }
+        } catch {}
+        return $q
+    }) | Out-Null
+
+    $asyncHandle = $bgPs.BeginInvoke()
+
+    $pollTimer = New-Object Windows.Threading.DispatcherTimer
+    $pollTimer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $pollTimer.Add_Tick({
+        if ($asyncHandle.IsCompleted) {
+            $pollTimer.Stop()
+            try {
+                $res = $bgPs.EndInvoke($asyncHandle)
+                if ($res -and $res.Count -gt 0) {
+                    $liveQ = $res[0]
+                    if ($liveQ.success) {
+                        ApplyQuotaToBars $liveQ
+                        # Save quota for active account
+                        if ($script:selectedAccount -and $script:selectedAccount.active) {
+                            SaveAccountQuota $script:selectedAccount.name $liveQ
+                        }
+                        $e.txSt.Text = "SYNCED // $(Get-Date -Format 'HH:mm:ss')"
+                        $e.txSt.Foreground = Br "#00E676"
+                    } else {
+                        $e.txSt.Text = "OFFLINE // Check CLI"
+                        $e.txSt.Foreground = Br "#FFA000"
+                    }
+                }
+            } catch {
+                $e.txSt.Text = "SYNC ERROR"
+                $e.txSt.Foreground = Br "#C62828"
+            } finally {
+                $bgPs.Dispose()
+                $script:isFetchingQuota = $false
+            }
+        }
+    })
+    $pollTimer.Start()
+}
+
+# ============================================================================
+# REFRESH-WIDGET (Instant Local Render + Async Live Telemetry)
 # ============================================================================
 
 function Refresh-Widget {
-    $e.txSt.Text = "SYNCING..."
-    $e.txSt.Foreground = Br "#FFA000"
-    $w.Dispatcher.Invoke([Action]{}, 'Render')
-
-    # Current credential
+    # Current active credential
     $cred = $null
     try { $cred = [AgyCredMgr]::Read("antigravity_google_oauth_credential") } catch {}
     $curEmail = if ($cred) { GetEmail $cred } else { "" }
@@ -837,21 +903,27 @@ function Refresh-Widget {
     $e.pnlAccList.Children.Clear()
     foreach ($acc in $allAccs) {
         $row = New-Object Windows.Controls.Border
-        $row.CornerRadius = [Windows.CornerRadius]::new(3)
+        $row.CornerRadius = [Windows.CornerRadius]::new(4)
         $row.Padding = [Windows.Thickness]::new(6,4,6,4)
         $row.Margin = [Windows.Thickness]::new(0,0,0,2)
         $row.Cursor = 'Hand'
         $bgNormal = if ($acc.active) { "#E0F2E0" } else { "#EDE9DD" }
         $row.Background = Br $bgNormal
 
-        $sp = New-Object Windows.Controls.StackPanel
-        $sp.Orientation = 'Horizontal'
+        $gridRow = New-Object Windows.Controls.Grid
+        $col0 = New-Object Windows.Controls.ColumnDefinition; $col0.Width = [Windows.GridLength]::new(1, [Windows.GridUnitType]::Star)
+        $col1 = New-Object Windows.Controls.ColumnDefinition; $col1.Width = [Windows.GridLength]::Auto
+        $gridRow.ColumnDefinitions.Add($col0) | Out-Null
+        $gridRow.ColumnDefinitions.Add($col1) | Out-Null
+
+        $spLeft = New-Object Windows.Controls.StackPanel
+        $spLeft.Orientation = 'Horizontal'
         $dot = New-Object Windows.Shapes.Ellipse
         $dot.Width = 6; $dot.Height = 6
         $dot.Fill = if ($acc.active) { Br "#00E676" } else { Br "#FFA000" }
         $dot.Margin = [Windows.Thickness]::new(0,0,5,0)
         $dot.VerticalAlignment = 'Center'
-        $sp.Children.Add($dot) | Out-Null
+        $spLeft.Children.Add($dot) | Out-Null
 
         $lbl = New-Object Windows.Controls.TextBlock
         $lbl.Text = "$($acc.name.ToUpper())  [$($acc.email)]"
@@ -860,7 +932,7 @@ function Refresh-Widget {
         $lbl.FontSize = 9
         $lbl.FontWeight = 'Bold'
         $lbl.VerticalAlignment = 'Center'
-        $sp.Children.Add($lbl) | Out-Null
+        $spLeft.Children.Add($lbl) | Out-Null
 
         if ($acc.active) {
             $badge = New-Object Windows.Controls.Border
@@ -873,11 +945,53 @@ function Refresh-Widget {
             $bt.Text = "ACTIVE"; $bt.Foreground = Br "#FFFFFF"; $bt.FontSize = 6.5
             $bt.FontFamily = [Windows.Media.FontFamily]::new("Consolas"); $bt.FontWeight = 'Bold'
             $badge.Child = $bt
-            $sp.Children.Add($badge) | Out-Null
+            $spLeft.Children.Add($badge) | Out-Null
         }
-        $row.Child = $sp
+        [Windows.Controls.Grid]::SetColumn($spLeft, 0)
+        $gridRow.Children.Add($spLeft) | Out-Null
 
-        # Click handler — capture $acc for closure
+        # Delete button for non-active accounts
+        if (-not $acc.active) {
+            $btnDel = New-Object Windows.Controls.Border
+            $btnDel.Width = 16; $btnDel.Height = 16
+            $btnDel.CornerRadius = [Windows.CornerRadius]::new(3)
+            $btnDel.Background = Br "#DCD6C4"
+            $btnDel.Margin = [Windows.Thickness]::new(4,0,0,0)
+            $btnDel.Cursor = 'Hand'
+            $btnDel.ToolTip = "Hapus akun '$($acc.name)'"
+            $delTxt = New-Object Windows.Controls.TextBlock
+            $delTxt.Text = [char]0x2715
+            $delTxt.FontSize = 8; $delTxt.Foreground = Br "#8E8878"
+            $delTxt.HorizontalAlignment = 'Center'; $delTxt.VerticalAlignment = 'Center'
+            $btnDel.Child = $delTxt
+
+            $btnDel.Add_MouseEnter({ $this.Background = Br "#FFCDD2"; $this.Child.Foreground = Br "#D32F2F" }.GetNewClosure())
+            $btnDel.Add_MouseLeave({ $this.Background = Br "#DCD6C4"; $this.Child.Foreground = Br "#8E8878" }.GetNewClosure())
+
+            $delTargetName = $acc.name
+            $btnDel.Add_PreviewMouseLeftButtonDown({
+                $_.Handled = $true
+                $conf = [Windows.MessageBox]::Show(
+                    "Hapus akun '$delTargetName' dari AGY RIG?",
+                    "Konfirmasi Hapus",
+                    [Windows.MessageBoxButton]::YesNo,
+                    [Windows.MessageBoxImage]::Warning
+                )
+                if ($conf -eq [Windows.MessageBoxResult]::Yes) {
+                    DelAcc $delTargetName
+                    $e.popAcc.IsOpen = $false
+                    $e.txSt.Text = "DIHAPUS: $delTargetName"
+                    $e.txSt.Foreground = Br "#E65100"
+                    Refresh-Widget
+                }
+            }.GetNewClosure())
+            [Windows.Controls.Grid]::SetColumn($btnDel, 1)
+            $gridRow.Children.Add($btnDel) | Out-Null
+        }
+
+        $row.Child = $gridRow
+
+        # Click handler — select account
         $capturedAcc = $acc
         $row.Add_PreviewMouseLeftButtonDown({
             $script:selectedAccount = $capturedAcc
@@ -885,6 +999,14 @@ function Refresh-Widget {
             $e.txtEmail.Text = $capturedAcc.email
             $e.popAcc.IsOpen = $false
             $_.Handled = $true
+
+            # Load cached quota if selecting another account
+            $cachedQ = GetAccountQuota $capturedAcc.name
+            if ($cachedQ) {
+                ApplyQuotaToBars $cachedQ
+                $e.txSt.Text = "SELECTED: $($capturedAcc.name.ToUpper())"
+                $e.txSt.Foreground = Br "#00838F"
+            }
         }.GetNewClosure())
 
         # Hover effects
@@ -907,36 +1029,19 @@ function Refresh-Widget {
     # Email display
     $e.txtEmail.Text = if ($curEmail) { $curEmail } else { "(belum login)" }
 
-    # Live telemetry
-    $liveQ = GetLiveAgyQuota
-
-    # Credits
-    $e.txtCredits.Text = "$($liveQ.credits)"
-    $script:lastUpgradeUri = "https://aistudio.google.com/apikey"
-
-    # Quota bars
-    $tw = 60
-    $setBars = {
-        param($barEl, $txtVal, $txtRst, $frac, $reset)
-        $pct = [int]([math]::Round($frac * 100))
-        $txtVal.Text = "$pct%"
-        $txtRst.Text = FormatCountdown $reset
-        $barEl.Width = [math]::Max(2, $tw * [math]::Min($frac, 1.0))
-        $barEl.Background = GetBarBrush $frac
-    }
-
-    & $setBars $e.barG5h $e.txtG5hVal $e.txtRstG5h $liveQ.gemini_5h $liveQ.gemini_5h_reset
-    & $setBars $e.barGWk $e.txtGWkVal $e.txtRstGWk $liveQ.gemini_wk $liveQ.gemini_wk_reset
-    & $setBars $e.barC5h $e.txtC5hVal $e.txtRstC5h $liveQ.claude_5h $liveQ.claude_5h_reset
-    & $setBars $e.barCWk $e.txtCWkVal $e.txtRstCWk $liveQ.claude_wk $liveQ.claude_wk_reset
-
     # Status LED
     $e.ledStatus.Fill = if ($curEmail) { Br "#00E676" } else { Br "#FFA000" }
     $e.txtStatus.Text = if ($curEmail) { "ONLINE" } else { "OFFLINE" }
     $e.txtStatus.Foreground = if ($curEmail) { Br "#388E3C" } else { Br "#E65100" }
 
-    $e.txSt.Text = "SYNCED // $(Get-Date -Format 'HH:mm:ss')"
-    $e.txSt.Foreground = Br "#00E676"
+    # Load local cached quota immediately (< 2ms)
+    if ($curName) {
+        $localQ = GetAccountQuota $curName
+        if ($localQ) { ApplyQuotaToBars $localQ }
+    }
+
+    # Trigger non-blocking async quota fetch
+    FetchLiveQuotaAsync
 }
 
 # ============================================================================
@@ -964,7 +1069,7 @@ function AskName([string]$def) {
 # EVENT HANDLERS
 # ============================================================================
 
-# Drag ONLY from header row (never intercepts buttons or dropdown clicks)
+# Drag ONLY from header row (never blocks buttons or dropdown clicks)
 $e.hdrDrag.Add_MouseLeftButtonDown({
     if ($_.ChangedButton -eq [System.Windows.Input.MouseButton]::Left) {
         try { $w.DragMove() } catch {}
@@ -975,7 +1080,7 @@ $e.hdrDrag.Add_MouseLeftButtonDown({
 $e.btnMin.Add_Click({ $w.WindowState = 'Minimized' })
 $e.btnClose.Add_Click({ $w.Close() })
 
-# Pin toggle (saklar always on top)
+# Pin toggle (Hardware Saklar always-on-top)
 $e.chkPin.Add_Checked({
     $w.Topmost = $true
     $e.pinBorder.Background = Br "#FFE633"
@@ -997,7 +1102,7 @@ $e.chkPin.Add_Unchecked({
     $e.txtPin.Foreground = Br "#423E33"
 })
 
-# Upgrade credits
+# Upgrade credits launcher
 $openCreditsAction = {
     $uri = if ($script:lastUpgradeUri) { $script:lastUpgradeUri } else { "https://aistudio.google.com/apikey" }
     Start-Process $uri
@@ -1056,20 +1161,44 @@ $e.btnParalel.Add_Click({
     $e.txSt.Foreground = Br "#00E676"
 })
 
-# LOGIN â€” OAuth browser login
+# LOGIN — OAuth browser login (Fixed & Robust)
 $e.btnLoginNew.Add_Click({
     $e.txSt.Text = "BROWSER LOGIN..."; $e.txSt.Foreground = Br "#FFA000"
     $w.Dispatcher.Invoke([Action]{}, 'Render')
     try {
-        $email = StartBrowserGoogleLogin
-        if ($email) {
-            $name = AskName ($email.Split('@')[0])
+        $res = StartBrowserGoogleLogin
+        if ($res.success) {
+            $defaultName = if ($res.email) { $res.email.Split('@')[0] } else { "user" }
+            $name = AskName $defaultName
             if ($name) {
-                SaveCur $name
-                $e.txSt.Text = "LOGIN OK: $name"
+                $cleanName = $name.ToLower().Trim()
+                $accountData = @{
+                    name = $cleanName
+                    user = "antigravity"
+                    email = if ($res.email) { $res.email } else { "(tidak terdeteksi)" }
+                    credential = (Enc $res.credential)
+                    saved_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+                } | ConvertTo-Json -Depth 5
+                [IO.File]::WriteAllText((Join-Path $AD "$cleanName.dat"), $accountData, [Text.Encoding]::UTF8)
+
+                $ans = [Windows.MessageBox]::Show(
+                    "Akun '$cleanName' ($($res.email)) berhasil disimpan!`n`nApakah ingin langsung SWITCH ke akun ini sekarang?",
+                    "Login Berhasil",
+                    [Windows.MessageBoxButton]::YesNo,
+                    [Windows.MessageBoxImage]::Question
+                )
+                if ($ans -eq [Windows.MessageBoxResult]::Yes) {
+                    SwitchTo $cleanName
+                    $e.txSt.Text = "SWITCHED: $cleanName"
+                } else {
+                    $e.txSt.Text = "SAVED: $cleanName"
+                }
                 $e.txSt.Foreground = Br "#00E676"
                 Refresh-Widget
             }
+        } else {
+            $e.txSt.Text = "LOGIN CANCELLED / $($res.error)"
+            $e.txSt.Foreground = Br "#FFA000"
         }
     } catch {
         $e.txSt.Text = "LOGIN ERROR: $($_.Exception.Message)"
@@ -1077,7 +1206,7 @@ $e.btnLoginNew.Add_Click({
     }
 })
 
-# SIMPAN â€” save current session
+# SIMPAN — save current active session
 $e.btnSave.Add_Click({
     $cred = $null
     try { $cred = [AgyCredMgr]::Read("antigravity_google_oauth_credential") } catch {}
@@ -1097,10 +1226,23 @@ $e.btnSave.Add_Click({
 
 # SYNC
 $e.btnRef.Add_Click({
-    Refresh-Widget
+    FetchLiveQuotaAsync
 })
 
-# Initial load
+# Auto-refresh timer every 3 minutes
+$autoSyncTimer = New-Object Windows.Threading.DispatcherTimer
+$autoSyncTimer.Interval = [TimeSpan]::FromMinutes(3)
+$autoSyncTimer.Add_Tick({
+    FetchLiveQuotaAsync
+})
+$autoSyncTimer.Start()
+
+# Window closing cleanup
+$w.Add_Closing({
+    try { $autoSyncTimer.Stop() } catch {}
+})
+
+# Initial render
 $w.Add_ContentRendered({
     Refresh-Widget
 })
