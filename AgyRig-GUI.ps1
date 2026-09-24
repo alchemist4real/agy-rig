@@ -1,6 +1,7 @@
 # ============================================================================
 # AGY RIG — Compact HUD Dock for Google Antigravity (AGY)
-# Glass Edition: Transparent Acrylic, Adaptive Colors, Responsive Controls
+# Crystal Glass Edition: Clear Transparent Glass, Adaptive Colors,
+# Responsive Controls, Isolated Parallel Profiles & Quota Telemetry.
 # ============================================================================
 
 Add-Type -AssemblyName PresentationFramework
@@ -13,65 +14,87 @@ Add-Type -AssemblyName System.Drawing
 # BACKEND: Credential Manager + DPAPI + Native AGY Quota Fetcher
 # ============================================================================
 
-if (-not ([System.Management.Automation.PSTypeName]'AgyCredMgr').Type) {
+if (-not ([System.Management.Automation.PSTypeName]'AgySwitchCredManager').Type) {
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-public class AgyCredMgr {
-    [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
-    static extern bool CredRead(string t, int ty, int f, out IntPtr c);
-    [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
-    static extern bool CredWrite(ref CRED c, int f);
-    [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
-    static extern bool CredDelete(string t, int ty, int f);
-    [DllImport("advapi32.dll", SetLastError=true)]
-    static extern void CredFree(IntPtr c);
+public class AgySwitchCredManager {
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool CredRead(string target, int type, int flags, out IntPtr credential);
 
-    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
-    public struct CRED {
-        public int Flags; public int Type; public string TargetName; public string Comment;
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool CredWrite(ref CREDENTIAL credential, int flags);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool CredDelete(string target, int type, int flags);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern void CredFree(IntPtr credential);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct CREDENTIAL {
+        public int Flags;
+        public int Type;
+        public string TargetName;
+        public string Comment;
         public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
-        public int BlobSize; public IntPtr Blob; public int Persist;
-        public int AttrCount; public IntPtr Attrs; public string Alias; public string UserName;
+        public int CredentialBlobSize;
+        public IntPtr CredentialBlob;
+        public int Persist;
+        public int AttributeCount;
+        public IntPtr Attributes;
+        public string TargetAlias;
+        public string UserName;
     }
 
-    public static string Read(string target) {
-        IntPtr p; if (!CredRead(target, 1, 0, out p)) return null;
-        CRED c = (CRED)Marshal.PtrToStructure(p, typeof(CRED));
-        string b = "";
-        if (c.BlobSize > 0 && c.Blob != IntPtr.Zero) {
-            byte[] d = new byte[c.BlobSize];
-            Marshal.Copy(c.Blob, d, 0, c.BlobSize);
-            b = Encoding.UTF8.GetString(d);
+    public static string ReadCredential(string target) {
+        IntPtr credPtr;
+        if (!CredRead(target, 1, 0, out credPtr)) return null;
+        CREDENTIAL cred = (CREDENTIAL)Marshal.PtrToStructure(credPtr, typeof(CREDENTIAL));
+        string blob = "";
+        if (cred.CredentialBlobSize > 0 && cred.CredentialBlob != IntPtr.Zero) {
+            byte[] bytes = new byte[cred.CredentialBlobSize];
+            Marshal.Copy(cred.CredentialBlob, bytes, 0, cred.CredentialBlobSize);
+            blob = Encoding.UTF8.GetString(bytes);
         }
-        CredFree(p);
-        return b;
+        CredFree(credPtr);
+        return blob;
     }
 
-    public static string ReadUser(string target) {
-        IntPtr p; if (!CredRead(target, 1, 0, out p)) return null;
-        CRED c = (CRED)Marshal.PtrToStructure(p, typeof(CRED));
-        string u = c.UserName;
-        CredFree(p);
-        return u;
+    public static string ReadCredentialUser(string target) {
+        IntPtr credPtr;
+        if (!CredRead(target, 1, 0, out credPtr)) return null;
+        CREDENTIAL cred = (CREDENTIAL)Marshal.PtrToStructure(credPtr, typeof(CREDENTIAL));
+        string user = cred.UserName;
+        CredFree(credPtr);
+        return user;
     }
 
-    public static bool Write(string target, string user, string blob) {
+    public static bool WriteCredential(string target, string userName, string blob) {
         if (string.IsNullOrEmpty(blob)) return false;
-        byte[] b = Encoding.UTF8.GetBytes(blob);
-        CRED c = new CRED();
-        c.Type = 1; c.TargetName = target; c.UserName = user; c.BlobSize = b.Length;
-        c.Blob = Marshal.AllocHGlobal(b.Length);
-        Marshal.Copy(b, 0, c.Blob, b.Length);
-        c.Persist = 2;
-        bool r = CredWrite(ref c, 0);
-        Marshal.FreeHGlobal(c.Blob);
-        return r;
+        byte[] blobBytes = Encoding.UTF8.GetBytes(blob);
+        CREDENTIAL cred = new CREDENTIAL();
+        cred.Flags = 0;
+        cred.Type = 1;
+        cred.TargetName = target;
+        cred.Comment = "Antigravity credentials";
+        cred.UserName = userName;
+        cred.CredentialBlobSize = blobBytes.Length;
+        cred.CredentialBlob = Marshal.AllocHGlobal(blobBytes.Length);
+        Marshal.Copy(blobBytes, 0, cred.CredentialBlob, blobBytes.Length);
+        cred.Persist = 2;
+        cred.AttributeCount = 0;
+        cred.Attributes = IntPtr.Zero;
+        cred.TargetAlias = null;
+
+        bool result = CredWrite(ref cred, 0);
+        Marshal.FreeHGlobal(cred.CredentialBlob);
+        return result;
     }
 
-    public static bool Delete(string target) {
+    public static bool DeleteCredential(string target) {
         return CredDelete(target, 1, 0);
     }
 }
@@ -83,53 +106,7 @@ public class Win32WindowHelper {
     [DllImport("user32.dll")]
     public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 }
-"@ -EA SilentlyContinue
-}
-
-# Enable Windows acrylic blur behind WPF window
-if (-not ([System.Management.Automation.PSTypeName]'AcrylicHelper').Type) {
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-
-public class AcrylicHelper {
-    [DllImport("user32.dll")]
-    static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttribData data);
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct WindowCompositionAttribData {
-        public int Attribute;
-        public IntPtr Data;
-        public int SizeOfData;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct AccentPolicy {
-        public int AccentState;
-        public int AccentFlags;
-        public int GradientColor;
-        public int AnimationId;
-    }
-
-    public static void EnableBlur(IntPtr hwnd, int tintColor) {
-        var accent = new AccentPolicy {
-            AccentState = 3,   // ACCENT_ENABLE_BLURBEHIND
-            AccentFlags = 2,
-            GradientColor = tintColor
-        };
-        int accentSize = Marshal.SizeOf(accent);
-        IntPtr accentPtr = Marshal.AllocHGlobal(accentSize);
-        Marshal.StructureToPtr(accent, accentPtr, false);
-        var data = new WindowCompositionAttribData {
-            Attribute = 19, // WCA_ACCENT_POLICY
-            Data = accentPtr,
-            SizeOfData = accentSize
-        };
-        SetWindowCompositionAttribute(hwnd, ref data);
-        Marshal.FreeHGlobal(accentPtr);
-    }
-}
-"@ -EA SilentlyContinue
+"@ -EA Stop
 }
 
 $CT = "gemini:antigravity"
@@ -154,17 +131,17 @@ foreach ($d in @($AD, $CD, $PD)) {
 }
 
 function script:ReadActiveCredBlob {
-    $blob = [AgyCredMgr]::Read($CT)
+    $blob = [AgySwitchCredManager]::ReadCredential($CT)
     if (-not $blob) {
-        $blob = [AgyCredMgr]::Read("antigravity_google_oauth_credential")
+        $blob = [AgySwitchCredManager]::ReadCredential("antigravity_google_oauth_credential")
     }
     return $blob
 }
 
 function script:ReadActiveCredUser {
-    $u = [AgyCredMgr]::ReadUser($CT)
+    $u = [AgySwitchCredManager]::ReadCredentialUser($CT)
     if (-not $u) {
-        $u = [AgyCredMgr]::ReadUser("antigravity_google_oauth_credential")
+        $u = [AgySwitchCredManager]::ReadCredentialUser("antigravity_google_oauth_credential")
     }
     if (-not $u) { $u = "antigravity" }
     return $u
@@ -197,9 +174,12 @@ function script:Find-AntigravityExe {
         foreach ($lnk in $lnkCandidates) {
             $sc = $shell.CreateShortcut($lnk.FullName)
             if ($sc.TargetPath -and (Test-Path $sc.TargetPath) -and ($sc.TargetPath -match "Antigravity\.exe$")) {
-                return $sc.TargetPath
+                $target = $sc.TargetPath
+                [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null
+                return $target
             }
         }
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null
     } catch {}
     return $null
 }
@@ -390,7 +370,7 @@ function script:StartBrowserGoogleLogin {
             $code = $request.QueryString["code"]
             $authError = $request.QueryString["error"]
 
-            $html = "<html><body style='font-family:Consolas,monospace;text-align:center;padding:50px;background:#0D0D0D;color:#4FC3F7;'><h2>LOGIN SUCCESSFUL</h2><p style='color:#90A4AE;'>Google account connected to AGY RIG.<br>You can close this tab.</p></body></html>"
+            $html = "<html><body style='font-family:Consolas,monospace;text-align:center;padding:50px;background:#0A0E17;color:#00E5FF;'><h2>LOGIN SUCCESSFUL</h2><p style='color:#90A4AE;'>Google account connected to AGY RIG.<br>You can close this tab now.</p></body></html>"
             $buffer = [System.Text.Encoding]::UTF8.GetBytes($html)
             $response.ContentLength64 = $buffer.Length
             $response.OutputStream.Write($buffer, 0, $buffer.Length)
@@ -438,45 +418,46 @@ function script:StartBrowserGoogleLogin {
 }
 
 function script:SaveCur([string]$n) {
-    $b = [AgyCredMgr]::Read($CT)
-    $u = [AgyCredMgr]::ReadUser($CT)
+    $b = ReadActiveCredBlob
+    $u = ReadActiveCredUser
     if (!$b) { return "NO_CRED" }
     $em = GetEmail $b
     if (!$em) { $em = "(not detected)" }
     $d = @{
-        name = $n.ToLower()
+        name = $n.ToLower().Trim()
         user = $u
         email = $em
         credential = (Enc $b)
         saved_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
     } | ConvertTo-Json -Depth 5
-    [IO.File]::WriteAllText((Join-Path $AD "$($n.ToLower()).dat"), $d, [Text.Encoding]::UTF8)
+    [IO.File]::WriteAllText((Join-Path $AD "$($n.ToLower().Trim()).dat"), $d, [Text.Encoding]::UTF8)
 
     $mp = Join-Path $env:USERPROFILE ".gemini\antigravity\mcp_oauth_tokens.json"
     if (Test-Path $mp) {
-        [IO.File]::WriteAllText((Join-Path $AD "$($n.ToLower())_mcp.dat"), (Enc(Get-Content $mp -Raw)), [Text.Encoding]::UTF8)
+        [IO.File]::WriteAllText((Join-Path $AD "$($n.ToLower().Trim())_mcp.dat"), (Enc(Get-Content $mp -Raw)), [Text.Encoding]::UTF8)
     }
-    [IO.File]::WriteAllText($AF, $n.ToLower(), [Text.Encoding]::UTF8)
+    [IO.File]::WriteAllText($AF, $n.ToLower().Trim(), [Text.Encoding]::UTF8)
 
     return "OK:$em"
 }
 
 function script:SwitchTo([string]$n) {
-    $ap = Join-Path $AD "$($n.ToLower()).dat"
+    $cleanName = $n.ToLower().Trim()
+    $ap = Join-Path $AD "$cleanName.dat"
     if (!(Test-Path $ap)) { return "NOT_FOUND" }
     $ac = Get-Content $ap -Raw | ConvertFrom-Json
     try { $b = Dec $ac.credential } catch { return "FAIL" }
     $u = if ($ac.user) { $ac.user } else { "antigravity" }
-    if (!([AgyCredMgr]::Write($CT, $u, $b))) { return "FAIL" }
+    if (!([AgySwitchCredManager]::WriteCredential($CT, $u, $b))) { return "FAIL" }
 
-    $mb = Join-Path $AD "$($n.ToLower())_mcp.dat"
+    $mb = Join-Path $AD "$($cleanName)_mcp.dat"
     $mt = Join-Path $env:USERPROFILE ".gemini\antigravity\mcp_oauth_tokens.json"
     if (Test-Path $mb) {
         try { [IO.File]::WriteAllText($mt, (Dec(Get-Content $mb -Raw)), [Text.Encoding]::UTF8) } catch {}
     }
-    [IO.File]::WriteAllText($AF, $n.ToLower(), [Text.Encoding]::UTF8)
+    [IO.File]::WriteAllText($AF, $cleanName, [Text.Encoding]::UTF8)
 
-    # Restart ONLY primary Antigravity (protect running parallel instances)
+    # Restart primary Antigravity (protect any parallel instances!)
     $activeProcs = Get-ParallelProcesses
     $mainProc = $activeProcs | Where-Object { -not $_.IsParallel }
     if ($mainProc) {
@@ -493,11 +474,21 @@ function script:SwitchTo([string]$n) {
 function script:LaunchParallel([string]$n) {
     $cleanName = $n.ToLower().Trim()
     $ap = Join-Path $AD "$cleanName.dat"
+
+    # Auto-save active account if missing .dat file
+    if (!(Test-Path $ap)) {
+        $curBlob = ReadActiveCredBlob
+        if ($curBlob) {
+            SaveCur $cleanName | Out-Null
+        }
+    }
+
     if (!(Test-Path $ap)) { return "NOT_FOUND" }
     $ac = Get-Content $ap -Raw | ConvertFrom-Json
-    try { $targetBlob = Dec $ac.credential } catch { return "FAIL" }
+    try { $targetBlob = Dec $ac.credential } catch { return "FAIL_DECRYPT" }
     $targetUser = if ($ac.user) { $ac.user } else { "antigravity" }
 
+    # Setup profile userdata directory
     $profDir = Join-Path $env:USERPROFILE ".gemini\antigravity\profiles\$cleanName"
     $userDir = Join-Path $profDir "userdata"
     if (!(Test-Path $userDir)) {
@@ -512,7 +503,8 @@ function script:LaunchParallel([string]$n) {
     $curBlob = ReadActiveCredBlob
     $curUser = ReadActiveCredUser
 
-    [AgyCredMgr]::Write($CT, $targetUser, $targetBlob) | Out-Null
+    # Temporarily apply target credential so new instance loads it
+    [AgySwitchCredManager]::WriteCredential($CT, $targetUser, $targetBlob) | Out-Null
 
     Start-Process $exe -ArgumentList "--user-data-dir=`"$userDir`""
 
@@ -522,22 +514,18 @@ function script:LaunchParallel([string]$n) {
         try { [IO.File]::WriteAllText($mt, (Dec(Get-Content $mb -Raw)), [Text.Encoding]::UTF8) } catch {}
     }
 
-    # Restore original credential after 4 seconds via dispatcher timer
+    # Restore original credential after 5 seconds via DispatcherTimer
     if ($curBlob -and ($curBlob -ne $targetBlob)) {
         $restoreTimer = New-Object Windows.Threading.DispatcherTimer
-        $restoreTimer.Interval = [TimeSpan]::FromSeconds(4)
-        $capturedCurBlob = $curBlob
-        $capturedCurUser = $curUser
-        $capturedCT = $CT
-        $capturedTimer = $restoreTimer
+        $restoreTimer.Interval = [TimeSpan]::FromSeconds(5)
         $restoreTimer.Add_Tick({
-            $capturedTimer.Stop()
-            [AgyCredMgr]::Write($capturedCT, $capturedCurUser, $capturedCurBlob) | Out-Null
-        }.GetNewClosure())
+            $restoreTimer.Stop()
+            [AgySwitchCredManager]::WriteCredential($CT, $curUser, $curBlob) | Out-Null
+        })
         $restoreTimer.Start()
     }
 
-    # Create desktop shortcut for this parallel profile
+    # Desktop shortcut
     try {
         $desktop = [Environment]::GetFolderPath("Desktop")
         $lnkPath = Join-Path $desktop "Antigravity ($($cleanName.ToUpper())).lnk"
@@ -548,51 +536,31 @@ function script:LaunchParallel([string]$n) {
         $sc.IconLocation = "$ICON_PATH,0"
         $sc.Description = "Antigravity Profile: $($cleanName.ToUpper())"
         $sc.Save()
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($sh) | Out-Null
     } catch {}
 
     return "OK"
 }
 
-function script:FocusOrLaunchParallel([string]$n) {
-    $cleanName = $n.ToLower().Trim()
-    if ($cleanName -eq "utama" -or $cleanName -eq "main" -or $cleanName -eq "default") {
-        $mainProc = Get-ParallelProcesses | Where-Object { -not $_.IsParallel }
-        if ($mainProc -and $mainProc.ProcessObj -and $mainProc.ProcessObj.MainWindowHandle -ne [IntPtr]::Zero) {
-            [Win32WindowHelper]::ShowWindowAsync($mainProc.ProcessObj.MainWindowHandle, 9) | Out-Null
-            [Win32WindowHelper]::SetForegroundWindow($mainProc.ProcessObj.MainWindowHandle) | Out-Null
-            return "FOCUSED_MAIN"
-        }
-    }
-
-    $activeProcs = Get-ParallelProcesses
-    $running = $activeProcs | Where-Object { $_.IsParallel -and ($_.ProfileName -eq $cleanName) }
-    if ($running -and $running.ProcessObj -and $running.ProcessObj.MainWindowHandle -ne [IntPtr]::Zero) {
-        [Win32WindowHelper]::ShowWindowAsync($running.ProcessObj.MainWindowHandle, 9) | Out-Null
-        [Win32WindowHelper]::SetForegroundWindow($running.ProcessObj.MainWindowHandle) | Out-Null
-        return "FOCUSED"
-    }
-
-    return (LaunchParallel $cleanName)
-}
-
 function script:DelAcc([string]$n) {
-    $ap = Join-Path $AD "$($n.ToLower()).dat"
+    $cleanName = $n.ToLower().Trim()
+    $ap = Join-Path $AD "$cleanName.dat"
     if (Test-Path $ap) { Remove-Item $ap -Force }
-    $mp = Join-Path $AD "$($n.ToLower())_mcp.dat"
+    $mp = Join-Path $AD "$($cleanName)_mcp.dat"
     if (Test-Path $mp) { Remove-Item $mp -Force }
-    $qp = Join-Path $CD "$($n.ToLower())_quota.json"
+    $qp = Join-Path $CD "$($cleanName)_quota.json"
     if (Test-Path $qp) { Remove-Item $qp -Force }
-    if ((Test-Path $AF) -and ((Get-Content $AF -Raw).Trim() -eq $n.ToLower())) { Remove-Item $AF -Force }
+    if ((Test-Path $AF) -and ((Get-Content $AF -Raw).Trim() -eq $cleanName)) { Remove-Item $AF -Force }
 }
 
 # ============================================================================
-# GUI — GLASS TRANSPARENT DOCK (Frosted Acrylic + Adaptive Colors)
+# GUI — CRYSTAL GLASS DOCK (Clear Transparent Glass + Crisp Adaptive UI)
 # ============================================================================
 
 $xamlStr = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-  Title="AGY RIG" Width="390" Height="230"
+  Title="AGY RIG" Width="388" Height="228"
   WindowStartupLocation="CenterScreen" WindowStyle="None" AllowsTransparency="True"
   Background="Transparent" ResizeMode="NoResize" ShowInTaskbar="True" Topmost="False"
   TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
@@ -600,12 +568,20 @@ $xamlStr = @'
   SnapsToDevicePixels="True" UseLayoutRounding="True">
 
   <Window.Resources>
+    <!-- Completely transparent button style - Stretches contents to fill column with zero default white boxes! -->
     <Style TargetType="Button">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0"/>
       <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Stretch"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border x:Name="bdr" Background="{TemplateBinding Background}"
+            <Border Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
                     SnapsToDevicePixels="True">
@@ -617,24 +593,27 @@ $xamlStr = @'
                 <Setter Property="Opacity" Value="0.85"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
-                <Setter Property="Opacity" Value="0.65"/>
+                <Setter Property="Opacity" Value="0.60"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
+
     <Style TargetType="ToggleButton">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ToggleButton">
-            <Border x:Name="tbdr" SnapsToDevicePixels="True">
+            <Border Background="Transparent" SnapsToDevicePixels="True">
               <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Opacity" Value="0.85"/>
+                <Setter Property="Opacity" Value="0.84"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -643,11 +622,11 @@ $xamlStr = @'
     </Style>
   </Window.Resources>
 
-  <!-- Outer Glass Border -->
-  <Border CornerRadius="14" Background="#C8181818" BorderBrush="#60FFFFFF" BorderThickness="1"
-          Margin="8" Padding="14,10" SnapsToDevicePixels="True" UseLayoutRounding="True">
+  <!-- Outer Glass Frame: Translucent Dark Slate with Subtle Ice-Blue Luminous Edge -->
+  <Border CornerRadius="14" Background="#500A0F1A" BorderBrush="#607898B8" BorderThickness="1.2"
+          Margin="10" Padding="14,11" SnapsToDevicePixels="True" UseLayoutRounding="True">
     <Border.Effect>
-      <DropShadowEffect Color="#000000" BlurRadius="16" ShadowDepth="3" Opacity="0.50" Direction="315"/>
+      <DropShadowEffect Color="#000000" BlurRadius="22" ShadowDepth="4" Opacity="0.60" Direction="270"/>
     </Border.Effect>
 
     <Grid>
@@ -657,12 +636,12 @@ $xamlStr = @'
         <RowDefinition Height="28"/>   <!-- 2: Selector + Buttons -->
         <RowDefinition Height="4"/>    <!-- 3: Spacer -->
         <RowDefinition Height="16"/>   <!-- 4: Email + Credits -->
-        <RowDefinition Height="6"/>    <!-- 5: Spacer -->
-        <RowDefinition Height="40"/>   <!-- 6: Quota Bars (2x20) -->
-        <RowDefinition Height="6"/>    <!-- 7: Spacer -->
+        <RowDefinition Height="5"/>    <!-- 5: Spacer -->
+        <RowDefinition Height="42"/>   <!-- 6: Quota Bars -->
+        <RowDefinition Height="5"/>    <!-- 7: Spacer -->
         <RowDefinition Height="26"/>   <!-- 8: Action Buttons -->
         <RowDefinition Height="5"/>    <!-- 9: Spacer -->
-        <RowDefinition Height="22"/>   <!-- 10: Status Bar -->
+        <RowDefinition Height="20"/>   <!-- 10: Status Bar -->
       </Grid.RowDefinitions>
 
       <!-- ROW 0: HEADER -->
@@ -674,35 +653,42 @@ $xamlStr = @'
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
+
+        <!-- Brand Title -->
         <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-          <Border Width="16" Height="16" Background="#30FFFFFF" BorderBrush="#40FFFFFF" BorderThickness="1" CornerRadius="4" Margin="0,0,6,0">
+          <Border Width="16" Height="16" Background="#35FFFFFF" BorderBrush="#60FFFFFF" BorderThickness="1" CornerRadius="4" Margin="0,0,6,0">
             <TextBlock Text="&#x25B2;" Foreground="#FFE633" FontSize="8" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0"/>
           </Border>
-          <TextBlock Text="AGY RIG" Foreground="#E0E0E0" FontSize="11" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
+          <TextBlock Text="AGY RIG" Foreground="#FFFFFF" FontSize="11" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
         </StackPanel>
+
+        <!-- Center Status -->
         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <Ellipse x:Name="ledStatus" Width="6" Height="6" Fill="#4FC3F7" Margin="0,0,4,0"/>
-          <TextBlock x:Name="txtStatus" Text="ONLINE" Foreground="#4FC3F7" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
+          <Ellipse x:Name="ledStatus" Width="6" Height="6" Fill="#00FF88" Margin="0,0,4,0"/>
+          <TextBlock x:Name="txtStatus" Text="ONLINE" Foreground="#00FF88" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
         </StackPanel>
+
         <!-- Pin Toggle -->
-        <ToggleButton x:Name="chkPin" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,4,0" ToolTip="Toggle Always on Top (Pin)">
-          <Border x:Name="pinBorder" CornerRadius="8" Background="#30FFFFFF" BorderBrush="#40FFFFFF" BorderThickness="1"
-                  Width="40" Height="16" SnapsToDevicePixels="True">
+        <ToggleButton x:Name="chkPin" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,5,0" ToolTip="Toggle Always-on-Top (Pin)">
+          <Border x:Name="pinBorder" CornerRadius="8" Background="#35FFFFFF" BorderBrush="#60FFFFFF" BorderThickness="1"
+                  Width="42" Height="16" SnapsToDevicePixels="True">
             <Grid Margin="3,0">
-              <Ellipse x:Name="dotPin" Width="10" Height="10" Fill="#80FFFFFF" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-              <TextBlock x:Name="txtPin" Text="PIN" FontSize="6.5" FontWeight="Bold" FontFamily="Consolas" Foreground="#80FFFFFF"
+              <Ellipse x:Name="dotPin" Width="10" Height="10" Fill="#C0FFFFFF" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+              <TextBlock x:Name="txtPin" Text="PIN" FontSize="6.5" FontWeight="Bold" FontFamily="Consolas" Foreground="#FFFFFF"
                          HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </Grid>
           </Border>
         </ToggleButton>
+
+        <!-- Window Min & Close -->
         <Button x:Name="btnMin" Grid.Column="3" Width="20" Height="16" Margin="0,0,4,0" ToolTip="Minimize">
-          <Border CornerRadius="4" Background="#30FFFFFF" BorderBrush="#40FFFFFF" BorderThickness="1">
-            <TextBlock Text="&#x2014;" FontSize="8" Foreground="#B0B0B0" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-2,0,0"/>
+          <Border CornerRadius="4" Background="#30FFFFFF" BorderBrush="#50FFFFFF" BorderThickness="1">
+            <TextBlock Text="&#x2014;" FontSize="8" Foreground="#E0E0E0" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-2,0,0"/>
           </Border>
         </Button>
         <Button x:Name="btnClose" Grid.Column="4" Width="20" Height="16" ToolTip="Close">
-          <Border CornerRadius="4" Background="#40EF5350" BorderBrush="#60EF5350" BorderThickness="1">
-            <TextBlock Text="&#x2715;" FontSize="7.5" Foreground="#FFCDD2" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          <Border CornerRadius="4" Background="#E53935" BorderThickness="0">
+            <TextBlock Text="&#x2715;" FontSize="7.5" Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Button>
       </Grid>
@@ -714,36 +700,47 @@ $xamlStr = @'
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <Border x:Name="accSelector" Grid.Column="0" CornerRadius="6" Background="#25FFFFFF"
-                BorderBrush="#35FFFFFF" BorderThickness="1" Padding="8,4" Cursor="Hand" ToolTip="Select profile"
+
+        <!-- Account Dropdown Trigger -->
+        <Border x:Name="accSelector" Grid.Column="0" CornerRadius="6" Background="#35FFFFFF"
+                BorderBrush="#70FFFFFF" BorderThickness="1" Padding="8,4" Cursor="Hand" ToolTip="Click to select account profile"
                 Height="28" SnapsToDevicePixels="True">
           <Grid>
-            <TextBlock x:Name="txtAccName" Text="(select profile)" Foreground="#E0E0E0"
-                       FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" Margin="0,0,16,0"/>
-            <TextBlock x:Name="txtArrow" Text="&#x25BC;" Foreground="#80FFFFFF" FontSize="8.5"
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,0">
+              <Ellipse x:Name="dotSelected" Width="7" Height="7" Fill="#00FF88" Margin="0,0,6,0"/>
+              <TextBlock x:Name="txtAccName" Text="(select profile)" Foreground="#FFFFFF"
+                         FontFamily="Consolas" FontSize="9.5" FontWeight="Bold" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+            <TextBlock x:Name="txtArrow" Text="&#x25BC;" Foreground="#00E5FF" FontSize="8.5"
                        HorizontalAlignment="Right" VerticalAlignment="Center"/>
           </Grid>
         </Border>
-        <Popup x:Name="popAcc" Placement="Bottom" StaysOpen="True" AllowsTransparency="True">
-          <Border Background="#E8202020" BorderBrush="#50FFFFFF" BorderThickness="1" CornerRadius="8"
-                  Padding="4" MinWidth="280" MaxHeight="180" SnapsToDevicePixels="True">
+
+        <!-- Popup List -->
+        <Popup x:Name="popAcc" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+          <Border Background="#F40E1420" BorderBrush="#6080A0" BorderThickness="1.5" CornerRadius="8"
+                  Padding="5" MinWidth="290" MaxHeight="220" SnapsToDevicePixels="True">
             <Border.Effect>
-              <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.50"/>
+              <DropShadowEffect BlurRadius="18" ShadowDepth="4" Opacity="0.70" Color="#000000"/>
             </Border.Effect>
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
               <StackPanel x:Name="pnlAccList"/>
             </ScrollViewer>
           </Border>
         </Popup>
-        <Button x:Name="btnSwitch" Grid.Column="1" Margin="4,0,0,0" ToolTip="Switch primary instance to selected profile" Height="28">
-          <Border CornerRadius="6" Background="#D0E65100" Padding="10,4">
+
+        <!-- SWITCH Button -->
+        <Button x:Name="btnSwitch" Grid.Column="1" Margin="5,0,0,0" ToolTip="Switch primary Antigravity session to this profile" Height="28">
+          <Border CornerRadius="6" Background="#E65100" Padding="12,5">
             <TextBlock Text="SWITCH" Foreground="#FFFFFF" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
           </Border>
         </Button>
-        <Button x:Name="btnParalel" Grid.Column="2" Margin="4,0,0,0" ToolTip="Launch or focus parallel instance" Height="28" MinWidth="72">
-          <Border x:Name="brdParalel" CornerRadius="6" Background="#D000838F" Padding="10,4">
-            <TextBlock x:Name="txtParalelBtn" Text="PARALLEL" Foreground="#FFFFFF" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+        <!-- PARALLEL / FOCUS Button (Always clearly visible & distinct!) -->
+        <Button x:Name="btnParalel" Grid.Column="2" Margin="5,0,0,0" ToolTip="Launch or focus parallel Antigravity instance" Height="28" MinWidth="82">
+          <Border x:Name="brdParalel" CornerRadius="6" Background="#00838F" Padding="10,5">
+            <TextBlock x:Name="txtParalelBtn" Text="&#x26A1; PARALLEL" Foreground="#FFFFFF" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Button>
       </Grid>
@@ -754,129 +751,134 @@ $xamlStr = @'
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <TextBlock x:Name="txtEmail" Grid.Column="0" Text="..." Foreground="#90A4AE" FontSize="8.5" FontFamily="Consolas"
+        <TextBlock x:Name="txtEmail" Grid.Column="0" Text="..." Foreground="#ECEFF1" FontSize="8.5" FontWeight="SemiBold" FontFamily="Consolas"
                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <TextBlock x:Name="txtCredits" Text="0" Foreground="#4FC3F7" FontSize="9.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
-          <TextBlock Text=" CR" Foreground="#4FC3F7" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" Opacity="0.7"/>
-          <Button x:Name="btnUpgrade" Margin="4,0,0,0" ToolTip="Purchase credits / open AI Studio" VerticalAlignment="Center">
-            <Border CornerRadius="4" Background="#4029B6F6" Padding="5,2">
-              <TextBlock Text="&#x2197;" Foreground="#4FC3F7" FontSize="8" FontWeight="Bold" VerticalAlignment="Center"/>
+          <TextBlock x:Name="txtCredits" Text="0" Foreground="#00E5FF" FontSize="9.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
+          <TextBlock Text=" CR" Foreground="#00E5FF" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" Opacity="0.9"/>
+          <Button x:Name="btnUpgrade" Margin="4,0,0,0" ToolTip="Purchase credits / AI Studio" VerticalAlignment="Center">
+            <Border CornerRadius="3" Background="#4000E5FF" BorderBrush="#8000E5FF" BorderThickness="1" Padding="5,1">
+              <TextBlock Text="&#x2197;" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" VerticalAlignment="Center"/>
             </Border>
           </Button>
         </StackPanel>
       </Grid>
 
-      <!-- ROW 6: QUOTA BARS -->
-      <Grid Grid.Row="6">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="12"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-        <Grid.RowDefinitions>
-          <RowDefinition Height="20"/>
-          <RowDefinition Height="20"/>
-        </Grid.RowDefinitions>
-
-        <!-- G-5H -->
-        <Grid Grid.Row="0" Grid.Column="0">
+      <!-- ROW 6: QUOTA BARS (Crystal Glass Tray) -->
+      <Border Grid.Row="6" Background="#28000000" BorderBrush="#25FFFFFF" BorderThickness="1" CornerRadius="6" Padding="6,2">
+        <Grid>
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="28"/>
             <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="26"/>
-            <ColumnDefinition Width="42"/>
-          </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="0" Text="G-5H" Foreground="#FF7043" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
-          <Grid Grid.Column="1" Margin="2,4" ToolTip="Gemini 5-hour quota">
-            <Border Background="#30FFFFFF" CornerRadius="3"/>
-            <Border x:Name="barG5h" Background="#FF7043" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
-          </Grid>
-          <TextBlock x:Name="txtG5hVal" Grid.Column="2" Text="--%" Foreground="#B0BEC5" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right"/>
-          <TextBlock x:Name="txtRstG5h" Grid.Column="3" Text="--" Foreground="#78909C" FontSize="7.5" FontWeight="SemiBold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
-        </Grid>
-
-        <!-- C-5H -->
-        <Grid Grid.Row="0" Grid.Column="2">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="28"/>
+            <ColumnDefinition Width="12"/>
             <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="26"/>
-            <ColumnDefinition Width="42"/>
           </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="0" Text="C-5H" Foreground="#4FC3F7" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
-          <Grid Grid.Column="1" Margin="2,4" ToolTip="Claude 5-hour quota">
-            <Border Background="#30FFFFFF" CornerRadius="3"/>
-            <Border x:Name="barC5h" Background="#4FC3F7" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
-          </Grid>
-          <TextBlock x:Name="txtC5hVal" Grid.Column="2" Text="--%" Foreground="#B0BEC5" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right"/>
-          <TextBlock x:Name="txtRstC5h" Grid.Column="3" Text="--" Foreground="#78909C" FontSize="7.5" FontWeight="SemiBold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
-        </Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="18"/>
+            <RowDefinition Height="18"/>
+          </Grid.RowDefinitions>
 
-        <!-- G-WK -->
-        <Grid Grid.Row="1" Grid.Column="0">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="28"/>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="26"/>
-            <ColumnDefinition Width="42"/>
-          </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="0" Text="G-WK" Foreground="#FF7043" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
-          <Grid Grid.Column="1" Margin="2,4" ToolTip="Gemini weekly quota">
-            <Border Background="#30FFFFFF" CornerRadius="3"/>
-            <Border x:Name="barGWk" Background="#FFA726" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+          <!-- G-5H -->
+          <Grid Grid.Row="0" Grid.Column="0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="28"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="26"/>
+              <ColumnDefinition Width="42"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="G-5H" Foreground="#FF7043" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
+            <Grid Grid.Column="1" Margin="2,3" ToolTip="Gemini 5-hour quota">
+              <Border Background="#35FFFFFF" CornerRadius="3"/>
+              <Border x:Name="barG5h" Background="#FF7043" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+            </Grid>
+            <TextBlock x:Name="txtG5hVal" Grid.Column="2" Text="--%" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+            <TextBlock x:Name="txtRstG5h" Grid.Column="3" Text="--" Foreground="#CFD8DC" FontSize="7.5" FontWeight="SemiBold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
           </Grid>
-          <TextBlock x:Name="txtGWkVal" Grid.Column="2" Text="--%" Foreground="#B0BEC5" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right"/>
-          <TextBlock x:Name="txtRstGWk" Grid.Column="3" Text="--" Foreground="#78909C" FontSize="7.5" FontWeight="SemiBold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
-        </Grid>
 
-        <!-- C-WK -->
-        <Grid Grid.Row="1" Grid.Column="2">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="28"/>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="26"/>
-            <ColumnDefinition Width="42"/>
-          </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="0" Text="C-WK" Foreground="#4FC3F7" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
-          <Grid Grid.Column="1" Margin="2,4" ToolTip="Claude weekly quota">
-            <Border Background="#30FFFFFF" CornerRadius="3"/>
-            <Border x:Name="barCWk" Background="#4DD0E1" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+          <!-- C-5H -->
+          <Grid Grid.Row="0" Grid.Column="2">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="28"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="26"/>
+              <ColumnDefinition Width="42"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="C-5H" Foreground="#00E5FF" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
+            <Grid Grid.Column="1" Margin="2,3" ToolTip="Claude 5-hour quota">
+              <Border Background="#35FFFFFF" CornerRadius="3"/>
+              <Border x:Name="barC5h" Background="#00E5FF" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+            </Grid>
+            <TextBlock x:Name="txtC5hVal" Grid.Column="2" Text="--%" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+            <TextBlock x:Name="txtRstC5h" Grid.Column="3" Text="--" Foreground="#CFD8DC" FontSize="7.5" FontWeight="SemiBold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
           </Grid>
-          <TextBlock x:Name="txtCWkVal" Grid.Column="2" Text="--%" Foreground="#B0BEC5" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right"/>
-          <TextBlock x:Name="txtRstCWk" Grid.Column="3" Text="--" Foreground="#78909C" FontSize="7.5" FontWeight="SemiBold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
-        </Grid>
-      </Grid>
 
-      <!-- ROW 8: ACTION BUTTONS (1:1:1 symmetry) -->
+          <!-- G-WK -->
+          <Grid Grid.Row="1" Grid.Column="0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="28"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="26"/>
+              <ColumnDefinition Width="42"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="G-WK" Foreground="#FF7043" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
+            <Grid Grid.Column="1" Margin="2,3" ToolTip="Gemini weekly quota">
+              <Border Background="#35FFFFFF" CornerRadius="3"/>
+              <Border x:Name="barGWk" Background="#FFA726" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+            </Grid>
+            <TextBlock x:Name="txtGWkVal" Grid.Column="2" Text="--%" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+            <TextBlock x:Name="txtRstGWk" Grid.Column="3" Text="--" Foreground="#CFD8DC" FontSize="7.5" FontWeight="SemiBold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
+          </Grid>
+
+          <!-- C-WK -->
+          <Grid Grid.Row="1" Grid.Column="2">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="28"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="26"/>
+              <ColumnDefinition Width="42"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="C-WK" Foreground="#00E5FF" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
+            <Grid Grid.Column="1" Margin="2,3" ToolTip="Claude weekly quota">
+              <Border Background="#35FFFFFF" CornerRadius="3"/>
+              <Border x:Name="barCWk" Background="#00E5FF" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+            </Grid>
+            <TextBlock x:Name="txtCWkVal" Grid.Column="2" Text="--%" Foreground="#FFFFFF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+            <TextBlock x:Name="txtRstCWk" Grid.Column="3" Text="--" Foreground="#CFD8DC" FontSize="7.5" FontWeight="SemiBold" FontFamily="Consolas" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
+          </Grid>
+        </Grid>
+      </Border>
+
+      <!-- ROW 8: ACTION BUTTONS (Symmetrical Frosted Glass Buttons) -->
       <Grid Grid.Row="8">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="4"/>
+          <ColumnDefinition Width="5"/>
           <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="4"/>
+          <ColumnDefinition Width="5"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="btnLoginNew" Grid.Column="0" ToolTip="Log in new Google account via browser">
-          <Border CornerRadius="6" Background="#D000838F" Padding="2,4">
-            <TextBlock Text="+ LOGIN" Foreground="#E0F7FA" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+        <Button x:Name="btnLoginNew" Grid.Column="0" ToolTip="Sign in new Google account via OAuth PKCE">
+          <Border CornerRadius="6" Background="#0077B6" Padding="2,4">
+            <TextBlock Text="+ LOGIN" Foreground="#FFFFFF" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Button>
-        <Button x:Name="btnSave" Grid.Column="2" ToolTip="Save active session to profile">
-          <Border CornerRadius="6" Background="#D0E65100" Padding="2,4">
-            <TextBlock Text="+ SAVE" Foreground="#FFF3E0" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+        <Button x:Name="btnSave" Grid.Column="2" ToolTip="Save currently active session as profile">
+          <Border CornerRadius="6" Background="#E65100" Padding="2,4">
+            <TextBlock Text="+ SAVE" Foreground="#FFFFFF" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Button>
-        <Button x:Name="btnRef" Grid.Column="4" ToolTip="Refresh telemetry">
-          <Border CornerRadius="6" Background="#30FFFFFF" Padding="2,4">
-            <TextBlock Text="&#x21BB; SYNC" Foreground="#B0BEC5" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+        <Button x:Name="btnRef" Grid.Column="4" ToolTip="Sync live model limits and quota">
+          <Border CornerRadius="6" Background="#30FFFFFF" BorderBrush="#50FFFFFF" BorderThickness="1" Padding="2,4">
+            <TextBlock Text="&#x21BB; SYNC" Foreground="#FFFFFF" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Button>
       </Grid>
 
       <!-- ROW 10: STATUS BAR -->
-      <Border Grid.Row="10" Background="#20FFFFFF" CornerRadius="5" Padding="8,2">
-        <TextBlock x:Name="txSt" Text="READY" Foreground="#4FC3F7" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+      <Border Grid.Row="10" Background="#25000000" BorderBrush="#25FFFFFF" BorderThickness="1" CornerRadius="5" Padding="8,1">
+        <TextBlock x:Name="txSt" Text="READY" Foreground="#00FF88" FontSize="7.5" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
       </Border>
 
     </Grid>
@@ -888,12 +890,12 @@ $xamlStr = @'
 $r = New-Object Xml.XmlNodeReader $xaml
 $w = [Windows.Markup.XamlReader]::Load($r)
 
-# Apply icon
+# Icon
 if (Test-Path $ICON_PATH) {
     try { $w.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new($ICON_PATH)) } catch {}
 }
 
-# Wire named elements
+# Wire elements
 $ns = New-Object Xml.XmlNamespaceManager $xaml.NameTable
 $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
 $nodes = $xaml.SelectNodes('//*[@x:Name]', $ns)
@@ -904,7 +906,7 @@ foreach ($node in $nodes) {
 }
 
 # ============================================================================
-# HELPERS & BRUSH CACHE
+# BRUSH CACHE
 # ============================================================================
 
 $script:bc = [Windows.Media.BrushConverter]::new()
@@ -918,8 +920,7 @@ function Br([string]$hex) {
     return $script:BrushCache[$hex]
 }
 
-# Quota bar color thresholds (adapted for dark glass)
-$brushGreen  = Br "#66BB6A"
+$brushGreen  = Br "#00FF88"
 $brushOrange = Br "#FFA726"
 $brushRed    = Br "#EF5350"
 
@@ -930,7 +931,6 @@ function GetBarBrush([double]$f) {
 $script:lastUpgradeUri = $null
 $script:selectedAccount = $null
 $script:isFetchingQuota = $false
-$script:dropdownOpen = $false
 
 # Wire popup placement
 $e.popAcc.PlacementTarget = $e.accSelector
@@ -959,7 +959,7 @@ function ApplyQuotaToBars($q) {
 }
 
 # ============================================================================
-# NON-BLOCKING ASYNC QUOTA FETCHER
+# ASYNC QUOTA FETCHER
 # ============================================================================
 
 function FetchLiveQuotaAsync {
@@ -1018,34 +1018,32 @@ function FetchLiveQuotaAsync {
 
     $asyncHandle = $bgPs.BeginInvoke()
 
-    $ticks = 0
-    $script:pollTimer = New-Object Windows.Threading.DispatcherTimer
-    $script:pollTimer.Interval = [TimeSpan]::FromMilliseconds(200)
-    $capturedBgPs = $bgPs
-    $capturedHandle = $asyncHandle
-    $pollHandler = {
-        $ticks++
-        if ($capturedHandle.IsCompleted -or $ticks -ge 75) {
-            $script:pollTimer.Stop()
+    $timer = New-Object Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds(250)
+    $timerTick = 0
+    $timer.Add_Tick({
+        $timerTick++
+        if ($asyncHandle.IsCompleted -or $timerTick -ge 80) {
+            $timer.Stop()
             try {
-                if ($capturedHandle.IsCompleted) {
-                    $res = $capturedBgPs.EndInvoke($capturedHandle)
+                if ($asyncHandle.IsCompleted) {
+                    $res = $bgPs.EndInvoke($asyncHandle)
                     if ($res -and $res.Count -gt 0) {
                         $liveQ = $res[0]
                         if ($liveQ.success) {
                             ApplyQuotaToBars $liveQ
-                            if ($script:selectedAccount -and $script:selectedAccount.active) {
+                            if ($script:selectedAccount) {
                                 SaveAccountQuota $script:selectedAccount.name $liveQ
                             }
-                            $e.txSt.Text = "SYNCED // $(Get-Date -Format 'HH:mm:ss')"
-                            $e.txSt.Foreground = Br "#4FC3F7"
+                            $e.txSt.Text = "ONLINE // $(Get-Date -Format 'HH:mm:ss')"
+                            $e.txSt.Foreground = Br "#00FF88"
                         } else {
                             $e.txSt.Text = "OFFLINE // Check CLI"
                             $e.txSt.Foreground = Br "#FFA726"
                         }
                     }
                 } else {
-                    $capturedBgPs.Stop()
+                    $bgPs.Stop()
                     $e.txSt.Text = "SYNC TIMEOUT"
                     $e.txSt.Foreground = Br "#FFA726"
                 }
@@ -1053,39 +1051,42 @@ function FetchLiveQuotaAsync {
                 $e.txSt.Text = "SYNC ERROR"
                 $e.txSt.Foreground = Br "#EF5350"
             } finally {
-                try { if ($capturedHandle.AsyncWaitHandle) { $capturedHandle.AsyncWaitHandle.Close() } } catch {}
-                $capturedBgPs.Dispose()
+                $bgPs.Dispose()
                 $script:isFetchingQuota = $false
             }
         }
-    }.GetNewClosure()
-    $script:pollTimer.Add_Tick($pollHandler)
-    $script:pollTimer.Start()
+    })
+    $timer.Start()
 }
 
 # ============================================================================
-# ACTION BUTTONS STATE HELPER
+# BUTTONS STATE HELPER
 # ============================================================================
 
 function script:Update-ActionButtons($acc, $preloadedProcs = $null) {
     if (-not $acc) { return }
     $activeProcs = if ($preloadedProcs -ne $null) { $preloadedProcs } else { Get-ParallelProcesses }
-    $isParallelRunning = [bool]($activeProcs | Where-Object { $_.IsParallel -and ($_.ProfileName -eq $acc.name.ToLower()) })
+    $isParallelRunning = [bool]($activeProcs | Where-Object { $_.IsParallel -and ($_.ProfileName -eq $acc.name.ToLower().Trim()) })
 
     if ($e.txtParalelBtn -and $e.brdParalel) {
-        if ($acc.active) {
-            # Active/Primary account: focus the main window
-            $e.txtParalelBtn.Text = "FOCUS"
-            $e.brdParalel.Background = Br "#D066BB6A"
-            $e.btnParalel.ToolTip = "Focus primary Antigravity window"
-        } elseif ($isParallelRunning) {
-            $e.txtParalelBtn.Text = "FOCUS"
-            $e.brdParalel.Background = Br "#D04FC3F7"
-            $e.btnParalel.ToolTip = "Focus parallel window for '$($acc.name)'"
+        if ($isParallelRunning) {
+            $e.txtParalelBtn.Text = [char]0x26A1 + " FOCUS"
+            $e.brdParalel.Background = Br "#00897B"
+            $e.btnParalel.ToolTip = "Bring running parallel instance for '$($acc.name)' to front"
         } else {
-            $e.txtParalelBtn.Text = "PARALLEL"
-            $e.brdParalel.Background = Br "#D000838F"
-            $e.btnParalel.ToolTip = "Launch parallel session for '$($acc.name)'"
+            $e.txtParalelBtn.Text = [char]0x26A1 + " PARALLEL"
+            $e.brdParalel.Background = Br "#00838F"
+            $e.btnParalel.ToolTip = "Launch isolated parallel Antigravity instance for '$($acc.name)'"
+        }
+    }
+
+    if ($e.btnSwitch) {
+        if ($acc.active) {
+            $e.btnSwitch.Opacity = 0.55
+            $e.btnSwitch.ToolTip = "This profile is already active"
+        } else {
+            $e.btnSwitch.Opacity = 1.0
+            $e.btnSwitch.ToolTip = "Switch primary Antigravity session to '$($acc.name)'"
         }
     }
 }
@@ -1098,32 +1099,44 @@ function Refresh-Widget {
     $cred = ReadActiveCredBlob
     $curEmail = if ($cred) { GetEmail $cred } else { "" }
     $curName = ""
-    if ($curEmail -and (Test-Path $AF)) { $curName = (Get-Content $AF -Raw).Trim() }
+    if (Test-Path $AF) { $curName = (Get-Content $AF -Raw).Trim() }
 
     $activeProcs = Get-ParallelProcesses
 
-    $allAccs = @()
-    if ($curEmail) {
-        $dn = if ($curName) { $curName } else { $curEmail.Split('@')[0] }
-        $allAccs += @{ name=$dn; email=$curEmail; active=$true; status="PRIMARY" }
-    }
+    # Find which saved account matches the active credential
     $saved = LoadAccs
+    $allAccs = @()
+
+    # Determine display name for active account
+    $activeDn = ""
+    if ($curEmail) {
+        $matchedSaved = $saved | Where-Object { $_.email -eq $curEmail }
+        if ($matchedSaved) {
+            $activeDn = $matchedSaved.name
+        } elseif ($curName) {
+            $activeDn = $curName
+        } else {
+            $activeDn = $curEmail.Split('@')[0]
+        }
+        $allAccs += [PSCustomObject]@{ name=$activeDn; email=$curEmail; active=$true; status="PRIMARY" }
+    }
+
     foreach ($a in $saved) {
-        if ($a.email -eq $curEmail) { continue }
+        if ($curEmail -and ($a.email -eq $curEmail -or $a.name.ToLower() -eq $activeDn.ToLower())) { continue }
         $isRun = [bool]($activeProcs | Where-Object { $_.IsParallel -and ($_.ProfileName -eq $a.name.ToLower()) })
         $st = if ($isRun) { "RUNNING" } else { "IDLE" }
-        $allAccs += @{ name=$a.name; email=$a.email; active=$false; status=$st }
+        $allAccs += [PSCustomObject]@{ name=$a.name; email=$a.email; active=$false; status=$st }
     }
 
     # Populate dropdown panel
     $e.pnlAccList.Children.Clear()
     foreach ($acc in $allAccs) {
         $row = New-Object Windows.Controls.Border
-        $row.CornerRadius = [Windows.CornerRadius]::new(5)
-        $row.Padding = [Windows.Thickness]::new(8,5,8,5)
-        $row.Margin = [Windows.Thickness]::new(0,0,0,2)
+        $row.CornerRadius = [Windows.CornerRadius]::new(6)
+        $row.Padding = [Windows.Thickness]::new(8,6,8,6)
+        $row.Margin = [Windows.Thickness]::new(0,0,0,3)
         $row.Cursor = 'Hand'
-        $bgNormal = if ($acc.active) { "#30FFFFFF" } elseif ($acc.status -eq "RUNNING") { "#204FC3F7" } else { "#15FFFFFF" }
+        $bgNormal = if ($acc.active) { "#3500E5FF" } elseif ($acc.status -eq "RUNNING") { "#2500B4D8" } else { "#18FFFFFF" }
         $row.Background = Br $bgNormal
 
         $gridRow = New-Object Windows.Controls.Grid
@@ -1131,16 +1144,16 @@ function Refresh-Widget {
         $cName  = New-Object Windows.Controls.ColumnDefinition; $cName.Width  = [Windows.GridLength]::new(1, [Windows.GridUnitType]::Star)
         $cBadge = New-Object Windows.Controls.ColumnDefinition; $cBadge.Width = [Windows.GridLength]::Auto
         $cDel   = New-Object Windows.Controls.ColumnDefinition; $cDel.Width   = [Windows.GridLength]::Auto
-        $gridRow.ColumnDefinitions.Add($cDot)
-        $gridRow.ColumnDefinitions.Add($cName)
-        $gridRow.ColumnDefinitions.Add($cBadge)
-        $gridRow.ColumnDefinitions.Add($cDel)
+        $gridRow.ColumnDefinitions.Add($cDot)   | Out-Null
+        $gridRow.ColumnDefinitions.Add($cName)  | Out-Null
+        $gridRow.ColumnDefinitions.Add($cBadge) | Out-Null
+        $gridRow.ColumnDefinitions.Add($cDel)   | Out-Null
 
         # Col 0: Dot
         $dot = New-Object Windows.Shapes.Ellipse
-        $dot.Width = 6; $dot.Height = 6
-        $dot.Fill = if ($acc.active) { Br "#66BB6A" } elseif ($acc.status -eq "RUNNING") { Br "#4FC3F7" } else { Br "#607D8B" }
-        $dot.Margin = [Windows.Thickness]::new(0,0,6,0)
+        $dot.Width = 7; $dot.Height = 7
+        $dot.Fill = if ($acc.active) { Br "#00FF88" } elseif ($acc.status -eq "RUNNING") { Br "#00E5FF" } else { Br "#78909C" }
+        $dot.Margin = [Windows.Thickness]::new(0,0,7,0)
         $dot.VerticalAlignment = 'Center'
         [Windows.Controls.Grid]::SetColumn($dot, 0)
         $gridRow.Children.Add($dot) | Out-Null
@@ -1148,9 +1161,9 @@ function Refresh-Widget {
         # Col 1: Label
         $lbl = New-Object Windows.Controls.TextBlock
         $lbl.Text = "$($acc.name.ToUpper())  $($acc.email)"
-        $lbl.Foreground = Br "#E0E0E0"
+        $lbl.Foreground = Br "#FFFFFF"
         $lbl.FontFamily = [Windows.Media.FontFamily]::new("Consolas")
-        $lbl.FontSize = 9; $lbl.FontWeight = 'Bold'; $lbl.VerticalAlignment = 'Center'
+        $lbl.FontSize = 9.5; $lbl.FontWeight = 'Bold'; $lbl.VerticalAlignment = 'Center'
         $lbl.TextTrimming = 'CharacterEllipsis'
         $lbl.Margin = [Windows.Thickness]::new(0,0,6,0)
         [Windows.Controls.Grid]::SetColumn($lbl, 1)
@@ -1159,18 +1172,18 @@ function Refresh-Widget {
         # Col 2: Badge
         $badge = New-Object Windows.Controls.Border
         $badge.CornerRadius = [Windows.CornerRadius]::new(3)
-        $badge.Padding = [Windows.Thickness]::new(5,1,5,1)
+        $badge.Padding = [Windows.Thickness]::new(5,2,5,2)
         $badge.VerticalAlignment = 'Center'
         $bt = New-Object Windows.Controls.TextBlock
         $bt.Foreground = Br "#FFFFFF"; $bt.FontSize = 6.5
         $bt.FontFamily = [Windows.Media.FontFamily]::new("Consolas"); $bt.FontWeight = 'Bold'
 
         if ($acc.active) {
-            $badge.Background = Br "#8066BB6A"; $bt.Text = "PRIMARY"
+            $badge.Background = Br "#802E7D32"; $bt.Text = "ACTIVE"
         } elseif ($acc.status -eq "RUNNING") {
-            $badge.Background = Br "#804FC3F7"; $bt.Text = "RUNNING"
+            $badge.Background = Br "#8000838F"; $bt.Text = "RUNNING"
         } else {
-            $badge.Background = Br "#40607D8B"; $bt.Text = "IDLE"
+            $badge.Background = Br "#50607D8B"; $bt.Text = "IDLE"
         }
         $badge.Child = $bt
         [Windows.Controls.Grid]::SetColumn($badge, 2)
@@ -1181,35 +1194,34 @@ function Refresh-Widget {
             $btnDel = New-Object Windows.Controls.Border
             $btnDel.Width = 20; $btnDel.Height = 20
             $btnDel.CornerRadius = [Windows.CornerRadius]::new(4)
-            $btnDel.Background = Br "#20FFFFFF"
+            $btnDel.Background = Br "#25FFFFFF"
             $btnDel.Margin = [Windows.Thickness]::new(6,0,0,0)
             $btnDel.Cursor = 'Hand'
             $btnDel.VerticalAlignment = 'Center'
             $btnDel.ToolTip = "Delete profile '$($acc.name)'"
             $delTxt = New-Object Windows.Controls.TextBlock
             $delTxt.Text = [char]0x2715
-            $delTxt.FontSize = 8; $delTxt.Foreground = Br "#78909C"
+            $delTxt.FontSize = 8; $delTxt.Foreground = Br "#90A4AE"
             $delTxt.HorizontalAlignment = 'Center'; $delTxt.VerticalAlignment = 'Center'
             $btnDel.Child = $delTxt
 
-            $btnDel.Add_MouseEnter({ $this.Background = Br "#40EF5350"; $this.Child.Foreground = Br "#EF5350" }.GetNewClosure())
-            $btnDel.Add_MouseLeave({ $this.Background = Br "#20FFFFFF"; $this.Child.Foreground = Br "#78909C" }.GetNewClosure())
+            $btnDel.Add_MouseEnter({ $this.Background = Br "#D5E53935"; $this.Child.Foreground = Br "#FFFFFF" }.GetNewClosure())
+            $btnDel.Add_MouseLeave({ $this.Background = Br "#25FFFFFF"; $this.Child.Foreground = Br "#90A4AE" }.GetNewClosure())
 
             $delTargetName = $acc.name
             $btnDel.Add_PreviewMouseLeftButtonDown({
                 $_.Handled = $true
                 $conf = [Windows.MessageBox]::Show(
-                    "Delete profile '$delTargetName'?",
+                    "Delete profile '$delTargetName' from AGY RIG?",
                     "Confirm Delete",
                     [Windows.MessageBoxButton]::YesNo,
                     [Windows.MessageBoxImage]::Warning
                 )
                 if ($conf -eq [Windows.MessageBoxResult]::Yes) {
                     DelAcc $delTargetName
-                    $script:dropdownOpen = $false
                     $e.popAcc.IsOpen = $false
                     $e.txSt.Text = "DELETED: $delTargetName"
-                    $e.txSt.Foreground = Br "#FF7043"
+                    $e.txSt.Foreground = Br "#FFA726"
                     Refresh-Widget
                 }
             }.GetNewClosure())
@@ -1219,13 +1231,13 @@ function Refresh-Widget {
 
         $row.Child = $gridRow
 
-        # Click handler — select account
+        # Click to select account
         $capturedAcc = $acc
         $row.Add_PreviewMouseLeftButtonDown({
             $script:selectedAccount = $capturedAcc
-            $e.txtAccName.Text = "$($capturedAcc.name.ToUpper())  $($capturedAcc.email)"
+            $e.txtAccName.Text = $capturedAcc.name.ToUpper()
             $e.txtEmail.Text = $capturedAcc.email
-            $script:dropdownOpen = $false
+            $e.dotSelected.Fill = if ($capturedAcc.active) { Br "#00FF88" } elseif ($capturedAcc.status -eq "RUNNING") { Br "#00E5FF" } else { Br "#78909C" }
             $e.popAcc.IsOpen = $false
             $_.Handled = $true
 
@@ -1235,48 +1247,52 @@ function Refresh-Widget {
             if ($cachedQ) {
                 ApplyQuotaToBars $cachedQ
                 $e.txSt.Text = "SELECTED: $($capturedAcc.name.ToUpper())"
-                $e.txSt.Foreground = Br "#4FC3F7"
+                $e.txSt.Foreground = Br "#00E5FF"
             }
         }.GetNewClosure())
 
-        # Hover effects
+        # Hover
         $capturedBg = $bgNormal
-        $row.Add_MouseEnter({ $this.Background = Br "#35FFFFFF" }.GetNewClosure())
+        $row.Add_MouseEnter({ $this.Background = Br "#40FFFFFF" }.GetNewClosure())
         $row.Add_MouseLeave({ $this.Background = Br $capturedBg }.GetNewClosure())
 
         $e.pnlAccList.Children.Add($row) | Out-Null
     }
 
-    # Set initial selection to active account
+    # Initial selection
     if ($allAccs.Count -gt 0) {
         $first = $allAccs[0]
         $script:selectedAccount = $first
-        $e.txtAccName.Text = "$($first.name.ToUpper())  $($first.email)"
+        $e.txtAccName.Text = $first.name.ToUpper()
+        $e.txtEmail.Text = $first.email
+        $e.dotSelected.Fill = if ($first.active) { Br "#00FF88" } elseif ($first.status -eq "RUNNING") { Br "#00E5FF" } else { Br "#78909C" }
         Update-ActionButtons $first $activeProcs
     } else {
         $e.txtAccName.Text = "(not logged in)"
+        $e.txtEmail.Text = "(no active session)"
     }
-
-    # Email display
-    $e.txtEmail.Text = if ($curEmail) { $curEmail } else { "(not logged in)" }
 
     # Status LED
-    $e.ledStatus.Fill = if ($curEmail) { Br "#4FC3F7" } else { Br "#FFA726" }
+    $e.ledStatus.Fill = if ($curEmail) { Br "#00FF88" } else { Br "#FFA726" }
     $e.txtStatus.Text = if ($curEmail) { "ONLINE" } else { "OFFLINE" }
-    $e.txtStatus.Foreground = if ($curEmail) { Br "#4FC3F7" } else { Br "#FFA726" }
+    $e.txtStatus.Foreground = if ($curEmail) { Br "#00FF88" } else { Br "#FFA726" }
 
-    # Load local cached quota immediately
-    if ($curName) {
-        $localQ = GetAccountQuota $curName
-        if ($localQ) { ApplyQuotaToBars $localQ }
+    # Load local cached quota immediately (< 2ms)
+    $cachedQ = $null
+    if ($script:selectedAccount) { $cachedQ = GetAccountQuota $script:selectedAccount.name }
+    if (-not $cachedQ -and $curName) { $cachedQ = GetAccountQuota $curName }
+    if ($cachedQ) {
+        ApplyQuotaToBars $cachedQ
+        $e.txSt.Text = "ONLINE"
+        $e.txSt.Foreground = Br "#00FF88"
     }
 
-    # Trigger non-blocking async quota fetch
+    # Fetch live telemetry
     FetchLiveQuotaAsync
 }
 
 # ============================================================================
-# ASK-NAME DIALOG (Glass themed)
+# ASK-NAME DIALOG (Glass Theme)
 # ============================================================================
 
 function AskName([string]$def) {
@@ -1284,27 +1300,27 @@ function AskName([string]$def) {
     $d.Title = "AGY RIG // Profile Name"; $d.Width = 300; $d.Height = 150
     $d.WindowStartupLocation = 'CenterOwner'; $d.Owner = $w
     $d.WindowStyle = 'ToolWindow'; $d.ResizeMode = 'NoResize'
-    $d.Background = Br "#FF1E1E1E"
+    $d.Background = Br "#F40E1420"
 
     $sp = New-Object Windows.Controls.StackPanel; $sp.Margin = [Windows.Thickness]::new(14,10,14,10)
     $lbl = New-Object Windows.Controls.TextBlock
-    $lbl.Text = "Enter profile name:"; $lbl.FontFamily = [Windows.Media.FontFamily]::new("Consolas"); $lbl.FontSize = 10; $lbl.FontWeight = 'Bold'; $lbl.Foreground = Br "#E0E0E0"
+    $lbl.Text = "Enter profile name:"; $lbl.FontFamily = [Windows.Media.FontFamily]::new("Consolas"); $lbl.FontSize = 10; $lbl.FontWeight = 'Bold'; $lbl.Foreground = Br "#FFFFFF"
 
     $tb = New-Object Windows.Controls.TextBox
     $tb.Text = $def; $tb.FontFamily = [Windows.Media.FontFamily]::new("Consolas"); $tb.FontSize = 11
-    $tb.Background = Br "#FF2D2D2D"; $tb.Foreground = Br "#E0E0E0"; $tb.BorderBrush = Br "#404040"; $tb.Padding = [Windows.Thickness]::new(4,2,4,2)
+    $tb.Background = Br "#25FFFFFF"; $tb.Foreground = Br "#FFFFFF"; $tb.BorderBrush = Br "#507090"; $tb.Padding = [Windows.Thickness]::new(6,3,6,3)
     $tb.Margin = [Windows.Thickness]::new(0,6,0,10)
-    $tb.CaretBrush = Br "#4FC3F7"
+    $tb.CaretBrush = Br "#00E5FF"
 
     $spBtn = New-Object Windows.Controls.StackPanel; $spBtn.Orientation = 'Horizontal'; $spBtn.HorizontalAlignment = 'Right'
     $btnCancel = New-Object Windows.Controls.Button; $btnCancel.Content = "Cancel"; $btnCancel.Width = 60; $btnCancel.Height = 24
     $btnCancel.Margin = [Windows.Thickness]::new(0,0,6,0); $btnCancel.IsCancel = $true
-    $btnCancel.Foreground = Br "#B0BEC5"
+    $btnCancel.Foreground = Br "#90A4AE"
     $btnCancel.Add_Click({ $d.DialogResult = $false; $d.Close() })
 
     $btnOk = New-Object Windows.Controls.Button; $btnOk.Content = "OK"; $btnOk.Width = 60; $btnOk.Height = 24
     $btnOk.IsDefault = $true; $btnOk.FontWeight = 'Bold'
-    $btnOk.Foreground = Br "#4FC3F7"
+    $btnOk.Foreground = Br "#00E5FF"
     $btnOk.Add_Click({ $d.DialogResult = $true; $d.Close() })
 
     $spBtn.Children.Add($btnCancel) | Out-Null
@@ -1323,7 +1339,7 @@ function AskName([string]$def) {
 # EVENT HANDLERS
 # ============================================================================
 
-# Drag from header row only
+# Drag window from header
 $e.hdrDrag.Add_MouseLeftButtonDown({
     if ($_.ChangedButton -eq [System.Windows.Input.MouseButton]::Left) {
         try { $w.DragMove() } catch {}
@@ -1337,8 +1353,8 @@ $e.btnClose.Add_Click({ $w.Close() })
 # Pin toggle
 $e.chkPin.Add_Checked({
     $w.Topmost = $true
-    $e.pinBorder.Background = Br "#D04FC3F7"
-    $e.pinBorder.BorderBrush = Br "#804FC3F7"
+    $e.pinBorder.Background = Br "#00897B"
+    $e.pinBorder.BorderBrush = Br "#00E5FF"
     $e.dotPin.Fill = Br "#FFFFFF"
     $e.dotPin.HorizontalAlignment = 'Right'
     $e.txtPin.HorizontalAlignment = 'Left'
@@ -1348,12 +1364,12 @@ $e.chkPin.Add_Checked({
 $e.chkPin.Add_Unchecked({
     $w.Topmost = $false
     $e.pinBorder.Background = Br "#30FFFFFF"
-    $e.pinBorder.BorderBrush = Br "#40FFFFFF"
-    $e.dotPin.Fill = Br "#80FFFFFF"
+    $e.pinBorder.BorderBrush = Br "#50FFFFFF"
+    $e.dotPin.Fill = Br "#A0FFFFFF"
     $e.dotPin.HorizontalAlignment = 'Left'
     $e.txtPin.HorizontalAlignment = 'Right'
     $e.txtPin.Text = "PIN"
-    $e.txtPin.Foreground = Br "#80FFFFFF"
+    $e.txtPin.Foreground = Br "#C0FFFFFF"
 })
 
 # Upgrade credits
@@ -1362,74 +1378,79 @@ $e.btnUpgrade.Add_Click({
     Start-Process $uri
 })
 
-# Open/close account dropdown (toggle, not fighting with StaysOpen)
+# Dropdown toggle
 $e.accSelector.Add_PreviewMouseLeftButtonDown({
-    $script:dropdownOpen = -not $script:dropdownOpen
-    $e.popAcc.IsOpen = $script:dropdownOpen
+    $e.popAcc.IsOpen = -not $e.popAcc.IsOpen
     $_.Handled = $true
 })
-
-# Close dropdown when clicking outside (only on the window itself, not on popup children)
-$w.Add_MouseLeftButtonDown({
-    if ($script:dropdownOpen) {
-        $script:dropdownOpen = $false
-        $e.popAcc.IsOpen = $false
-    }
-})
-
-# Arrow indicator
 $e.popAcc.Add_Opened({ if ($e.txtArrow) { $e.txtArrow.Text = [char]0x25B2 } })
-$e.popAcc.Add_Closed({
-    if ($e.txtArrow) { $e.txtArrow.Text = [char]0x25BC }
-    $script:dropdownOpen = $false
-})
+$e.popAcc.Add_Closed({ if ($e.txtArrow) { $e.txtArrow.Text = [char]0x25BC } })
 
-# Close popup if window moves
-$w.Add_LocationChanged({
-    if ($script:dropdownOpen) {
-        $script:dropdownOpen = $false
-        $e.popAcc.IsOpen = $false
-    }
-})
+# Close popup when window moves
+$w.Add_LocationChanged({ if ($e.popAcc.IsOpen) { $e.popAcc.IsOpen = $false } })
 
-# SWITCH
+# SWITCH — make this profile the primary session
 $e.btnSwitch.Add_Click({
     $tag = $script:selectedAccount
-    if (-not $tag) { $e.txSt.Text = "Select profile first"; $e.txSt.Foreground = Br "#FFA726"; return }
+    if (-not $tag) { $e.txSt.Text = "Please select a profile first"; $e.txSt.Foreground = Br "#FFA726"; return }
     if ($tag.active) {
         $e.txSt.Text = "Already active"; $e.txSt.Foreground = Br "#FFA726"
         return
     }
-    $e.txSt.Text = "SWITCHING..."; $e.txSt.Foreground = Br "#FFA726"
+    $e.txSt.Text = "SWITCHING PRIMARY TO: $($tag.name.ToUpper())..."; $e.txSt.Foreground = Br "#FFA726"
     $w.Dispatcher.Invoke([Action]{}, 'Render')
-    SwitchTo $tag.name
-    $e.txSt.Text = "SWITCHED: $($tag.name.ToUpper())"
-    $e.txSt.Foreground = Br "#4FC3F7"
-    Refresh-Widget
-})
-
-# PARALLEL / FOCUS
-$e.btnParalel.Add_Click({
-    $tag = $script:selectedAccount
-    if (-not $tag) { $e.txSt.Text = "Select profile first"; $e.txSt.Foreground = Br "#FFA726"; return }
-    $res = FocusOrLaunchParallel $tag.name
-    if ($res -eq "FOCUSED") {
-        $e.txSt.Text = "FOCUSED: $($tag.name.ToUpper())"
-        $e.txSt.Foreground = Br "#4FC3F7"
-    } elseif ($res -eq "FOCUSED_MAIN") {
-        $e.txSt.Text = "FOCUSED: PRIMARY"
-        $e.txSt.Foreground = Br "#4FC3F7"
-    } elseif ($res -eq "OK") {
-        $e.txSt.Text = "PARALLEL LAUNCHED: $($tag.name.ToUpper())"
-        $e.txSt.Foreground = Br "#66BB6A"
+    $res = SwitchTo $tag.name
+    if ($res -eq "OK") {
+        $e.txSt.Text = "SWITCHED! Primary Antigravity restarted."
+        $e.txSt.Foreground = Br "#00FF88"
     } else {
-        $e.txSt.Text = "PARALLEL ERROR: $res"
+        $e.txSt.Text = "SWITCH FAILED: $res"
         $e.txSt.Foreground = Br "#EF5350"
     }
     Refresh-Widget
 })
 
-# LOGIN
+# PARALLEL / FOCUS — launches an isolated parallel instance or focuses if running
+$e.btnParalel.Add_Click({
+    $tag = $script:selectedAccount
+    if (-not $tag) {
+        $e.txSt.Text = "Please select a profile first"
+        $e.txSt.Foreground = Br "#FFA726"
+        return
+    }
+
+    $cleanName = $tag.name.ToLower().Trim()
+    $activeProcs = Get-ParallelProcesses
+    $running = $activeProcs | Where-Object { $_.IsParallel -and ($_.ProfileName -eq $cleanName) }
+
+    if ($running -and $running.ProcessObj -and $running.ProcessObj.MainWindowHandle -ne [IntPtr]::Zero) {
+        [Win32WindowHelper]::ShowWindowAsync($running.ProcessObj.MainWindowHandle, 9) | Out-Null
+        [Win32WindowHelper]::SetForegroundWindow($running.ProcessObj.MainWindowHandle) | Out-Null
+        $e.txSt.Text = "FOCUSED: $($tag.name.ToUpper())"
+        $e.txSt.Foreground = Br "#00E5FF"
+    } else {
+        $e.txSt.Text = "LAUNCHING PARALLEL: $($tag.name.ToUpper())..."
+        $e.txSt.Foreground = Br "#FFA726"
+        $w.Dispatcher.Invoke([Action]{}, 'Render')
+
+        $res = LaunchParallel $cleanName
+        if ($res -eq "OK") {
+            $e.txSt.Text = "PARALLEL LAUNCHED: $($tag.name.ToUpper())"
+            $e.txSt.Foreground = Br "#00FF88"
+        } elseif ($res -eq "NO_EXE") {
+            $e.txSt.Text = "ERROR: Antigravity.exe not found"
+            $e.txSt.Foreground = Br "#EF5350"
+        } else {
+            $e.txSt.Text = "PARALLEL ERROR: $res"
+            $e.txSt.Foreground = Br "#EF5350"
+        }
+    }
+
+    Start-Sleep -Milliseconds 400
+    Refresh-Widget
+})
+
+# LOGIN — Google OAuth sign-in
 $e.btnLoginNew.Add_Click({
     $e.txSt.Text = "BROWSER LOGIN..."; $e.txSt.Foreground = Br "#FFA726"
     $w.Dispatcher.Invoke([Action]{}, 'Render')
@@ -1450,7 +1471,7 @@ $e.btnLoginNew.Add_Click({
                 [IO.File]::WriteAllText((Join-Path $AD "$cleanName.dat"), $accountData, [Text.Encoding]::UTF8)
 
                 $ans = [Windows.MessageBox]::Show(
-                    "Profile '$cleanName' ($($res.email)) saved.`n`nSwitch to this profile now?",
+                    "Profile '$cleanName' ($($res.email)) saved successfully.`n`nSwitch to this profile now?",
                     "Sign-in Successful",
                     [Windows.MessageBoxButton]::YesNo,
                     [Windows.MessageBoxImage]::Question
@@ -1461,7 +1482,7 @@ $e.btnLoginNew.Add_Click({
                 } else {
                     $e.txSt.Text = "SAVED: $cleanName"
                 }
-                $e.txSt.Foreground = Br "#4FC3F7"
+                $e.txSt.Foreground = Br "#00FF88"
                 Refresh-Widget
             }
         } else {
@@ -1474,19 +1495,20 @@ $e.btnLoginNew.Add_Click({
     }
 })
 
-# SAVE
+# SAVE — save current session
 $e.btnSave.Add_Click({
     $cred = ReadActiveCredBlob
     if (-not $cred) {
-        $e.txSt.Text = "No active session"; $e.txSt.Foreground = Br "#EF5350"
+        $e.txSt.Text = "No active session to save"; $e.txSt.Foreground = Br "#EF5350"
         return
     }
     $email = GetEmail $cred
-    $name = AskName ($email.Split('@')[0])
+    $defaultName = if ($email) { $email.Split('@')[0] } else { "user" }
+    $name = AskName $defaultName
     if ($name) {
         SaveCur $name
         $e.txSt.Text = "SAVED: $name"
-        $e.txSt.Foreground = Br "#4FC3F7"
+        $e.txSt.Foreground = Br "#00FF88"
         Refresh-Widget
     }
 })
@@ -1504,25 +1526,13 @@ $autoSyncTimer.Add_Tick({
 })
 $autoSyncTimer.Start()
 
-# Cleanup on close
+# Window closing cleanup
 $w.Add_Closing({
     try { $autoSyncTimer.Stop() } catch {}
-    try { if ($script:pollTimer) { $script:pollTimer.Stop() } } catch {}
 })
 
-# Enable acrylic blur after window loads
-$w.Add_SourceInitialized({
-    try {
-        $hwnd = (New-Object Windows.Interop.WindowInteropHelper $w).Handle
-        # Tint: AABBGGRR format, semi-transparent dark
-        [AcrylicHelper]::EnableBlur($hwnd, 0x99181818)
-    } catch {}
-})
-
-# Initial render
-$w.Add_ContentRendered({
-    Refresh-Widget
-})
+# Initial data population
+Refresh-Widget
 
 # ============================================================================
 # LAUNCH
