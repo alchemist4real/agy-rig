@@ -373,7 +373,7 @@ def get_running_antigravity_processes():
                         continue
                     pid = int(parts[0])
                     cmd = parts[1]
-                    m = re.search(r"profiles[/\\]([^/\"]+)", cmd)
+                    m = re.search(r"profiles[/\\]([^/\\\"\s]+)", cmd)
                     is_parallel = bool(m)
                     prof_name = m.group(1).lower() if m else "primary"
                     procs.append({
@@ -393,7 +393,8 @@ def get_running_antigravity_processes():
                 data = [data]
             for p in data:
                 cmd = p.get("CommandLine") or ""
-                m = re.search(r"profiles[/\\]([^/\"\s]+)", cmd)
+                m = re.search(r"profiles[/\\]([^/\\\"\s]+)", cmd)
+
                 is_parallel = bool(m)
                 prof_name = m.group(1).lower() if m else "primary"
                 procs.append({
@@ -874,13 +875,41 @@ def cmd_scan():
         print(f"        {Color.GRAY}[--] jetski_state.pbtxt not found.{Color.RESET}")
 
     # 3. Existing profiles
-    print(f"  {Color.CYAN}[3/3] Checking isolated parallel profile storage...{Color.RESET}")
+    print(f"  {Color.CYAN}[3/4] Checking isolated parallel profile storage...{Color.RESET}")
     saved = list_saved_accounts()
     print(f"        Found {Color.GREEN}{len(saved)}{Color.RESET} saved profiles in AGY RIG.")
+
+    # 4. Active Antigravity Processes & Sessions
+    print(f"\n  {Color.CYAN}[4/4] Active Antigravity Processes & Sessions...{Color.RESET}")
+    procs = get_running_antigravity_processes()
+    primary = [p for p in procs if not p["is_parallel"]]
+    parallels = [p for p in procs if p["is_parallel"]]
+
+    if primary:
+        print(f"        Primary Instance : {Color.GREEN}[RUNNING]{Color.RESET} (PID: {primary[0]['pid']})")
+    else:
+        print(f"        Primary Instance : {Color.GRAY}[STOPPED]{Color.RESET}")
+
+    if parallels:
+        print(f"        Parallel Sessions: {Color.GREEN}{len(parallels)} active{Color.RESET}")
+        for p in parallels:
+            prof_name = p['profile_name']
+            email_tag = ""
+            for s in saved:
+                if s.get("name", "").lower() == prof_name.lower():
+                    if s.get("email"):
+                        email_tag = f" ({s['email']})"
+                    break
+            print(f"          - Slot '{prof_name}'{email_tag} [PID: {p['pid']}]")
+    else:
+        print(f"        Parallel Sessions: {Color.GRAY}0 active (Launch with: agy-rig parallel launch <name>){Color.RESET}")
+
+    print(f"        Total Active     : {Color.CYAN}{len(procs)} session(s){Color.RESET}")
 
     print(f"\n  {Color.GREEN}================================================================{Color.RESET}")
     print(f"  {Color.BOLD}{Color.GREEN}[OK] Credential scan completed successfully.{Color.RESET}")
     print(f"  {Color.GREEN}================================================================{Color.RESET}\n")
+
 
 def cmd_use(name: str):
     if not name:
@@ -928,7 +957,8 @@ def cmd_parallel(subcmd: str, name: str):
             return
         for idx, p in enumerate(parallels, 1):
             print(f"  {idx}. {Color.BOLD}{p['profile_name'].upper()}{Color.RESET} (PID: {p['pid']})")
-        print()
+        print(f"  Summary: {len(parallels)} parallel session(s) active, {len(procs)} total Antigravity session(s).\n")
+
     elif subcmd in ["launch", "start"]:
         if not name:
             print(f"  {Color.RED}[ERROR] Specify profile name to launch.{Color.RESET}")
@@ -1242,9 +1272,33 @@ def main():
         active = get_active_account_name()
         cred = CredentialStore.read()
         email = extract_email(cred) if cred else "(none)"
-        print(f"\n  Active Profile : {active or '(none)'}")
+        saved = list_saved_accounts()
+        matched_name = active
+        if email and email != "(none)":
+            for s in saved:
+                if s.get("email") and s["email"].lower() == email.lower():
+                    matched_name = s.get("name")
+                    break
+
+        procs = get_running_antigravity_processes()
+        primary = [p for p in procs if not p["is_parallel"]]
+        parallels = [p for p in procs if p["is_parallel"]]
+
+        print(f"\n  Active Profile : {matched_name or '(none)'}")
         print(f"  Active Email   : {email}")
+        if primary:
+            print(f"  Primary Window : {Color.GREEN}[RUNNING]{Color.RESET} (PID: {primary[0]['pid']})")
+        else:
+            print(f"  Primary Window : {Color.GRAY}[STOPPED]{Color.RESET}")
+
+        if parallels:
+            p_details = ", ".join([f"{p['profile_name'].upper()} (PID: {p['pid']})" for p in parallels])
+            print(f"  Parallel Window: {Color.CYAN}{len(parallels)} running [{p_details}]{Color.RESET}")
+        else:
+            print(f"  Parallel Window: {Color.GRAY}0 running{Color.RESET}")
+
         cmd_quota()
+
     else:
         cmd_help()
 

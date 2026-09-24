@@ -810,7 +810,7 @@ function Scan-AntigravityCredentials {
     $activeEmail = Extract-EmailFromToken $activeBlob
 
     # 1. Primary Windows Credential Manager
-    Write-Host "  [1/4] Windows Credential Manager" -ForegroundColor Cyan
+    Write-Host "  [1/5] Windows Credential Manager" -ForegroundColor Cyan
     if ($activeBlob) {
         Write-Host "        Status       : [CONNECTED]" -ForegroundColor Green
         Write-Host "        Target       : $CRED_TARGET" -ForegroundColor Gray
@@ -831,7 +831,7 @@ function Scan-AntigravityCredentials {
     }
 
     # 2. MCP OAuth Tokens
-    Write-Host "`n  [2/4] MCP OAuth Tokens (mcp_oauth_tokens.json)" -ForegroundColor Cyan
+    Write-Host "`n  [2/5] MCP OAuth Tokens (mcp_oauth_tokens.json)" -ForegroundColor Cyan
     $mcpPath = Join-Path $env:USERPROFILE ".gemini\antigravity\mcp_oauth_tokens.json"
     if (Test-Path $mcpPath) {
         $mcpLen = (Get-Item $mcpPath).Length
@@ -842,7 +842,7 @@ function Scan-AntigravityCredentials {
     }
 
     # 3. CLI State / Identity
-    Write-Host "`n  [3/4] AGY CLI State (jetski_state.pbtxt)" -ForegroundColor Cyan
+    Write-Host "`n  [3/5] AGY CLI State (jetski_state.pbtxt)" -ForegroundColor Cyan
     $jetskiPath = Join-Path $env:USERPROFILE ".gemini\antigravity-cli\jetski_state.pbtxt"
     if (Test-Path $jetskiPath) {
         Write-Host "        File         : $jetskiPath" -ForegroundColor Gray
@@ -852,7 +852,7 @@ function Scan-AntigravityCredentials {
     }
 
     # 4. Compare with Saved Accounts
-    Write-Host "`n  [4/4] AGY RIG Account Synchronization" -ForegroundColor Cyan
+    Write-Host "`n  [4/5] AGY RIG Account Synchronization" -ForegroundColor Cyan
     $savedAccounts = Get-ChildItem $ACCOUNTS_DIR -Filter "*.dat" -EA SilentlyContinue | Where-Object { $_.Name -notmatch "_mcp" }
     $matchedAccount = $null
 
@@ -889,8 +889,42 @@ function Scan-AntigravityCredentials {
         Write-Host "        Note         : No active account to synchronize." -ForegroundColor DarkGray
     }
 
+    # 5. Active Antigravity Processes & Parallel Sessions
+    Write-Host "`n  [5/5] Active Antigravity Processes & Parallel Sessions" -ForegroundColor Cyan
+    $activeProcs = @(Get-ParallelProcesses)
+    $mainProc = $activeProcs | Where-Object { -not $_.IsParallel }
+    $parallelProcs = @($activeProcs | Where-Object { $_.IsParallel })
+
+    if ($mainProc) {
+        Write-Host "        Primary Instance : [RUNNING] (PID: $($mainProc.ProcessId))" -ForegroundColor Green
+    } else {
+        Write-Host "        Primary Instance : [STOPPED]" -ForegroundColor DarkGray
+    }
+
+    if ($parallelProcs.Count -gt 0) {
+        Write-Host "        Parallel Sessions: $($parallelProcs.Count) active" -ForegroundColor Green
+        foreach ($pp in $parallelProcs) {
+            $pEmail = ""
+            $pDat = Join-Path $ACCOUNTS_DIR "$($pp.ProfileName).dat"
+            if (Test-Path $pDat) {
+                try {
+                    $pObj = Get-Content $pDat -Raw | ConvertFrom-Json
+                    $pEmail = $pObj.email
+                } catch {}
+            }
+            $emailTag = if ($pEmail) { " ($pEmail)" } else { "" }
+            Write-Host "          - Slot '$($pp.ProfileName)'$emailTag [PID: $($pp.ProcessId)]" -ForegroundColor White
+        }
+    } else {
+        Write-Host "        Parallel Sessions: 0 active (Launch with: agy-rig parallel launch <name>)" -ForegroundColor DarkGray
+    }
+
+    $totalSessions = $activeProcs.Count
+    Write-Host "        Total Active     : $totalSessions session(s)" -ForegroundColor Cyan
     Write-Host ""
 }
+
+
 
 # ============================================================================
 # PARALEL ENGINE (1-to-Unlimited Sessions, Focus & Management)
@@ -969,7 +1003,11 @@ function List-ParallelSessions {
         $index++
     }
 
+    $runningParallelCount = ($activeProcs | Where-Object { $_.IsParallel }).Count
+    $totalRunning = ($activeProcs).Count
     Write-Host "  --------------------------------------------------------------------------------------------------" -ForegroundColor DarkGray
+    Write-Host "  Summary: $runningParallelCount parallel session(s) active, $totalRunning total Antigravity instance(s)." -ForegroundColor Cyan
+    Write-Host ""
     Write-Host "  Quick Commands:" -ForegroundColor DarkYellow
     Write-Host "    agy-rig parallel switch <name>  # Focus window if running, or launch if idle" -ForegroundColor Gray
     Write-Host "    agy-rig parallel launch <name>  # Launch new parallel instance" -ForegroundColor Gray
@@ -1519,9 +1557,37 @@ function Show-Current {
 
     if ($blob) {
         $email = Extract-EmailFromToken $blob
-        Write-Host "  Saved Name     : $(if ($activeName) { $activeName } else { '(not yet saved in agy-rig)' })" -ForegroundColor White
+
+        # Match active email against saved accounts
+        $savedAccounts = Get-ChildItem $ACCOUNTS_DIR -Filter "*.dat" -EA SilentlyContinue | Where-Object { $_.Name -notmatch "_mcp" }
+        foreach ($sa in $savedAccounts) {
+            try {
+                $data = Get-Content $sa.FullName -Raw | ConvertFrom-Json
+                if ($data.email -and $email -and ($data.email.ToLower() -eq $email.ToLower())) {
+                    $activeName = $data.name
+                    break
+                }
+            } catch {}
+        }
+
+        Write-Host "  Active Slot    : $(if ($activeName) { $activeName } else { '(not yet saved in agy-rig)' })" -ForegroundColor White
         Write-Host "  Account Email  : $(if ($email) { $email } else { '(not detected)' })" -ForegroundColor White
         Write-Host "  Credential     : Stored in Windows Credential Manager ($CRED_TARGET)" -ForegroundColor Green
+
+        # Show running Antigravity sessions
+        $activeProcs = @(Get-ParallelProcesses)
+        $mainProc = $activeProcs | Where-Object { -not $_.IsParallel }
+        $parallelProcs = @($activeProcs | Where-Object { $_.IsParallel })
+
+        $mainStatus = if ($mainProc) { "[RUNNING] (PID: $($mainProc.ProcessId))" } else { "[STOPPED]" }
+        Write-Host "  Primary Window : $mainStatus" -ForegroundColor $(if ($mainProc) { 'Green' } else { 'DarkGray' })
+
+        if ($parallelProcs.Count -gt 0) {
+            $pDetails = ($parallelProcs | ForEach-Object { "$($_.ProfileName.ToUpper()) (PID: $($_.ProcessId))" }) -join ", "
+            Write-Host "  Parallel Window: $($parallelProcs.Count) running [$pDetails]" -ForegroundColor Cyan
+        } else {
+            Write-Host "  Parallel Window: 0 running" -ForegroundColor DarkGray
+        }
 
         $quotaFile = Join-Path $CREDITS_DIR "$($activeName.ToLower())_quota.json"
         if ($activeName -and (Test-Path $quotaFile)) {

@@ -862,7 +862,7 @@ $xamlStr = @'
 
             <!-- Dropdown Title + Close Button -->
             <Grid Grid.Row="0" Margin="4,0,4,4">
-              <TextBlock Text="SAVED PROFILES" Foreground="#00E5FF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
+              <TextBlock x:Name="txtDropTitle" Text="SAVED PROFILES" Foreground="#00E5FF" FontSize="8" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center"/>
               <Button x:Name="btnCloseDropdown" HorizontalAlignment="Right" Width="20" Height="18" Cursor="Hand" ToolTip="Close list">
                 <Border CornerRadius="3" Background="#30FFFFFF">
                   <TextBlock Text="&#x2715;" FontSize="8" Foreground="#B0BEC5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -1248,10 +1248,35 @@ function Refresh-Widget {
         $e.txtEmail.Text = "(no active session)"
     }
 
-    # Status LED
-    $e.ledStatus.Fill = if ($curEmail) { Br "#00FF88" } else { Br "#FFA726" }
-    $e.txtStatus.Text = if ($curEmail) { "ONLINE" } else { "OFFLINE" }
-    $e.txtStatus.Foreground = if ($curEmail) { Br "#00FF88" } else { Br "#FFA726" }
+    # Count running parallel sessions
+    $parCount = @($activeProcs | Where-Object { $_.IsParallel }).Count
+
+    # Dropdown title badge
+    if ($e.txtDropTitle) {
+        $e.txtDropTitle.Text = if ($parCount -gt 0) { "SAVED PROFILES ($parCount RUNNING)" } else { "SAVED PROFILES" }
+    }
+
+    # Status LED & Header text
+    if ($curEmail) {
+        $e.ledStatus.Fill = Br "#00FF88"
+        if ($parCount -gt 0) {
+            $e.txtStatus.Text = "ONLINE // $parCount PARALLEL"
+            $e.txtStatus.Foreground = Br "#00E5FF"
+        } else {
+            $e.txtStatus.Text = "ONLINE"
+            $e.txtStatus.Foreground = Br "#00FF88"
+        }
+    } else {
+        if ($parCount -gt 0) {
+            $e.ledStatus.Fill = Br "#00E5FF"
+            $e.txtStatus.Text = "$parCount PARALLEL"
+            $e.txtStatus.Foreground = Br "#00E5FF"
+        } else {
+            $e.ledStatus.Fill = Br "#FFA726"
+            $e.txtStatus.Text = "OFFLINE"
+            $e.txtStatus.Foreground = Br "#FFA726"
+        }
+    }
 
     # Load local cached quota immediately (< 2ms)
     $cachedQ = $null
@@ -1259,8 +1284,8 @@ function Refresh-Widget {
     if (-not $cachedQ -and $curName) { $cachedQ = GetAccountQuota $curName }
     if ($cachedQ) {
         ApplyQuotaToBars $cachedQ
-        $e.txSt.Text = "ONLINE"
-        $e.txSt.Foreground = Br "#00FF88"
+        $e.txSt.Text = if ($parCount -gt 0) { "ONLINE // $parCount PARALLEL ACTIVE" } else { "ONLINE" }
+        $e.txSt.Foreground = if ($parCount -gt 0) { Br "#00E5FF" } else { Br "#00FF88" }
     }
 }
 
