@@ -1193,12 +1193,20 @@ function StartPreLaunchSync {
     $e.viewMain.Visibility = 'Collapsed'
     $e.barLoading.Width = 30
     $e.txtLoadingStep.Text = "Scanning local credential vault..."
-    $e.txtLoadingSub.Text = "STEP 1/4 // INITIALIZING"
+    $e.txtLoadingSub.Text = "STEP 1/3 // SCANNING PROFILES"
 
-    $cliBin = Find-AgyBin
+    # Pre-render local accounts and cached quota immediately (< 2ms)
+    Refresh-Widget
 
-    $bgPs = [powershell]::Create()
-    $bgPs.AddScript({
+    $script:syncState = @{
+        cliBin      = (Find-AgyBin)
+        bgPs        = [powershell]::Create()
+        asyncHandle = $null
+        ticks       = 0
+        timer       = (New-Object Windows.Threading.DispatcherTimer)
+    }
+
+    $script:syncState.bgPs.AddScript({
         param([string]$cliPath)
         $q = @{
             success = $false
@@ -1240,39 +1248,36 @@ function StartPreLaunchSync {
             }
         } catch {}
         return $q
-    }) | Out-Null
-    $bgPs.AddArgument($cliBin) | Out-Null
+    }).AddArgument($script:syncState.cliBin) | Out-Null
 
-    $asyncHandle = $bgPs.BeginInvoke()
+    $script:syncState.asyncHandle = $script:syncState.bgPs.BeginInvoke()
+    $script:syncState.timer.Interval = [TimeSpan]::FromMilliseconds(100)
 
-    $timer = New-Object Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds(120)
-    $ticks = 0
+    $script:syncState.timer.Add_Tick({
+        $script:syncState.ticks++
+        $t = $script:syncState.ticks
 
-    $timer.Add_Tick({
-        $ticks++
-        
-        # Smooth progress bar animation
-        if ($ticks -lt 15) {
-            $e.barLoading.Width = [math]::Min(120, 30 + ($ticks * 6))
-            $e.txtLoadingStep.Text = "Connecting to Antigravity CLI ($([IO.Path]::GetFileName($cliBin)))..."
-            $e.txtLoadingSub.Text = "STEP 2/4 // AUTHENTICATING"
-        } elseif ($ticks -lt 30) {
-            $e.barLoading.Width = [math]::Min(200, 120 + (($ticks - 15) * 5))
-            $e.txtLoadingStep.Text = "Synchronizing Gemini & Claude model quotas..."
-            $e.txtLoadingSub.Text = "STEP 3/4 // FETCHING LIVE LIMITS"
+        if ($t -lt 12) {
+            $e.barLoading.Width = [math]::Min(110, 30 + ($t * 7))
+            $binName = if ($script:syncState.cliBin) { [IO.Path]::GetFileName($script:syncState.cliBin) } else { "agy.exe" }
+            $e.txtLoadingStep.Text = "Connecting to Antigravity CLI ($binName)..."
+            $e.txtLoadingSub.Text = "STEP 1/3 // CONNECTING"
+        } elseif ($t -lt 28) {
+            $e.barLoading.Width = [math]::Min(210, 110 + (($t - 12) * 6))
+            $e.txtLoadingStep.Text = "Synchronizing Gemini & Claude live limits..."
+            $e.txtLoadingSub.Text = "STEP 2/3 // SYNCING QUOTA"
         } else {
-            $e.barLoading.Width = [math]::Min(255, 200 + (($ticks - 30) * 3))
-            $e.txtLoadingStep.Text = "Synchronizing credit balance & profiles..."
-            $e.txtLoadingSub.Text = "STEP 4/4 // FINALIZING"
+            $e.barLoading.Width = [math]::Min(255, 210 + (($t - 28) * 3))
+            $e.txtLoadingStep.Text = "Synchronizing credits & active profiles..."
+            $e.txtLoadingSub.Text = "STEP 3/3 // FINALIZING"
         }
 
-        # Check if background sync is done or 7s timeout
-        if ($asyncHandle.IsCompleted -or $ticks -ge 55) {
-            $timer.Stop()
+        # Complete when async returns or after 45 ticks (4.5s max timeout)
+        if ($script:syncState.asyncHandle.IsCompleted -or $script:syncState.ticks -ge 45) {
+            $script:syncState.timer.Stop()
             try {
-                if ($asyncHandle.IsCompleted) {
-                    $res = $bgPs.EndInvoke($asyncHandle)
+                if ($script:syncState.asyncHandle.IsCompleted) {
+                    $res = $script:syncState.bgPs.EndInvoke($script:syncState.asyncHandle)
                     if ($res -and $res.Count -gt 0 -and $res[0].success) {
                         $liveQ = $res[0]
                         ApplyQuotaToBars $liveQ
@@ -1283,27 +1288,20 @@ function StartPreLaunchSync {
                 }
             } catch {}
             finally {
-                $bgPs.Dispose()
+                $script:syncState.bgPs.Dispose()
             }
 
-            # Pre-populate dashboard
+            # Update dashboard state
             Refresh-Widget
             $e.barLoading.Width = 260
             $e.txtLoadingStep.Text = "Synchronized! Opening dashboard..."
             $e.txtLoadingSub.Text = "STATUS: COMPLETE"
 
-            # Transition to main view after a smooth 250ms visual confirmation
-            $transTimer = New-Object Windows.Threading.DispatcherTimer
-            $transTimer.Interval = [TimeSpan]::FromMilliseconds(250)
-            $transTimer.Add_Tick({
-                $transTimer.Stop()
-                $e.viewLoading.Visibility = 'Collapsed'
-                $e.viewMain.Visibility = 'Visible'
-            })
-            $transTimer.Start()
+            $e.viewLoading.Visibility = 'Collapsed'
+            $e.viewMain.Visibility = 'Visible'
         }
     })
-    $timer.Start()
+    $script:syncState.timer.Start()
 }
 
 # ============================================================================
@@ -1317,9 +1315,15 @@ function FetchLiveQuotaAsync {
     $e.txSt.Text = "SYNCING..."
     $e.txSt.Foreground = Br "#FFA726"
 
-    $cliBin = Find-AgyBin
-    $bgPs = [powershell]::Create()
-    $bgPs.AddScript({
+    $script:bgState = @{
+        cliBin      = (Find-AgyBin)
+        bgPs        = [powershell]::Create()
+        asyncHandle = $null
+        ticks       = 0
+        timer       = (New-Object Windows.Threading.DispatcherTimer)
+    }
+
+    $script:bgState.bgPs.AddScript({
         param([string]$cliPath)
         $q = @{
             success = $false
@@ -1361,37 +1365,31 @@ function FetchLiveQuotaAsync {
             }
         } catch {}
         return $q
-    }) | Out-Null
-    $bgPs.AddArgument($cliBin) | Out-Null
+    }).AddArgument($script:bgState.cliBin) | Out-Null
 
-    $asyncHandle = $bgPs.BeginInvoke()
+    $script:bgState.asyncHandle = $script:bgState.bgPs.BeginInvoke()
+    $script:bgState.timer.Interval = [TimeSpan]::FromMilliseconds(200)
 
-    $timer = New-Object Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds(250)
-    $timerTick = 0
-    $timer.Add_Tick({
-        $timerTick++
-        if ($asyncHandle.IsCompleted -or $timerTick -ge 80) {
-            $timer.Stop()
+    $script:bgState.timer.Add_Tick({
+        $script:bgState.ticks++
+        if ($script:bgState.asyncHandle.IsCompleted -or $script:bgState.ticks -ge 50) {
+            $script:bgState.timer.Stop()
             try {
-                if ($asyncHandle.IsCompleted) {
-                    $res = $bgPs.EndInvoke($asyncHandle)
-                    if ($res -and $res.Count -gt 0) {
+                if ($script:bgState.asyncHandle.IsCompleted) {
+                    $res = $script:bgState.bgPs.EndInvoke($script:bgState.asyncHandle)
+                    if ($res -and $res.Count -gt 0 -and $res[0].success) {
                         $liveQ = $res[0]
-                        if ($liveQ.success) {
-                            ApplyQuotaToBars $liveQ
-                            if ($script:selectedAccount) {
-                                SaveAccountQuota $script:selectedAccount.name $liveQ
-                            }
-                            $e.txSt.Text = "ONLINE // $(Get-Date -Format 'HH:mm:ss')"
-                            $e.txSt.Foreground = Br "#00FF88"
-                        } else {
-                            $e.txSt.Text = "OFFLINE // Check CLI"
-                            $e.txSt.Foreground = Br "#FFA726"
+                        ApplyQuotaToBars $liveQ
+                        if ($script:selectedAccount) {
+                            SaveAccountQuota $script:selectedAccount.name $liveQ
                         }
+                        $e.txSt.Text = "ONLINE // $(Get-Date -Format 'HH:mm:ss')"
+                        $e.txSt.Foreground = Br "#00FF88"
+                    } else {
+                        $e.txSt.Text = "OFFLINE // Check CLI"
+                        $e.txSt.Foreground = Br "#FFA726"
                     }
                 } else {
-                    $bgPs.Stop()
                     $e.txSt.Text = "SYNC TIMEOUT"
                     $e.txSt.Foreground = Br "#FFA726"
                 }
@@ -1399,12 +1397,12 @@ function FetchLiveQuotaAsync {
                 $e.txSt.Text = "SYNC ERROR"
                 $e.txSt.Foreground = Br "#EF5350"
             } finally {
-                $bgPs.Dispose()
+                $script:bgState.bgPs.Dispose()
                 $script:isFetchingQuota = $false
             }
         }
     })
-    $timer.Start()
+    $script:bgState.timer.Start()
 }
 
 # ============================================================================
