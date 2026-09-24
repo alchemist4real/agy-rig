@@ -8,12 +8,12 @@ echo     AGY RIG - ONE-CLICK INSTALLER
 echo     Antigravity Account Switcher + Live Quota Dock
 echo  ==============================================================
 echo.
-echo  Menjalankan installer otomatis...
+echo  Running automated installer...
 echo.
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1"
 
 echo.
 echo  ==============================================================
-echo  Tekan sembarang tombol untuk keluar...
+echo  Press any key to exit...
 pause >nul

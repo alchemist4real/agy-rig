@@ -1,4 +1,5 @@
-$dir = "C:\Users\ACER\.gemini\antigravity\scratch\agy-switch"
+$dir = $PSScriptRoot
+if (-not $dir) { $dir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 Set-Location $dir
 
 # Configure local git user if not set

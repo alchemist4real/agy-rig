@@ -14,7 +14,7 @@ truncate.ps1
 update-shortcut.ps1
 gen-icon.ps1
 switch-menu.ps1
-install.ps1
+make-rounded-icon.ps1
 
 # Render previews & screenshots
 *.png
