@@ -210,7 +210,7 @@ function script:Get-ParallelProcesses {
         $_.CommandLine -notmatch "--type="
     }
     foreach ($p in $rootProcs) {
-        $isParallel = $p.CommandLine -match '--user-data-dir=[^"''\s]*[\\/]profiles[\\/]([^\\/''"\s]+)'
+        $isParallel = $p.CommandLine -match '[\\/]profiles[\\/]([^\\/''"\s]+)'
         $profName = if ($isParallel) { $matches[1] } else { "(PRIMARY)" }
         $proc = Get-Process -Id $p.ProcessId -EA SilentlyContinue
         $results += [PSCustomObject]@{
