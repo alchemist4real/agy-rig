@@ -396,8 +396,12 @@ function script:LaunchParallel([string]$n) {
     $userDir = Join-Path $profDir "userdata"
     if (!(Test-Path $userDir)) {
         New-Item -ItemType Directory -Path $userDir -Force | Out-Null
+    }
+    $storageFile = Join-Path $userDir "app_storage.json"
+    if (!(Test-Path $storageFile)) {
         $initStorage = @{ "ide-install-wizard-shown" = "true" } | ConvertTo-Json
-        [IO.File]::WriteAllText((Join-Path $userDir "app_storage.json"), $initStorage, [Text.Encoding]::UTF8)
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($storageFile, $initStorage, $utf8NoBom)
     }
 
     $exe = Find-AntigravityExe
@@ -406,9 +410,8 @@ function script:LaunchParallel([string]$n) {
     $curBlob = ReadActiveCredBlob
     $curUser = ReadActiveCredUser
 
+    # Inject target profile credential into Credential Manager
     [AgySwitchCredManager]::WriteCredential($CT, $targetUser, $targetBlob) | Out-Null
-
-    Start-Process $exe -ArgumentList "--user-data-dir=`"$userDir`""
 
     $mb = Join-Path $AD "$($cleanName)_mcp.dat"
     $mt = Join-Path $env:USERPROFILE ".gemini\antigravity\mcp_oauth_tokens.json"
@@ -416,13 +419,41 @@ function script:LaunchParallel([string]$n) {
         try { [IO.File]::WriteAllText($mt, (Dec(Get-Content $mb -Raw)), [Text.Encoding]::UTF8) } catch {}
     }
 
-    # Restore original credential after 5 seconds via DispatcherTimer
+    # Start the parallel Antigravity instance
+    $newProc = Start-Process $exe -ArgumentList "--user-data-dir=`"$userDir`"" -PassThru
+
+    # Restore original credential ONLY after parallel instance's language_server has spawned and read keyring
     if ($curBlob -and ($curBlob -ne $targetBlob)) {
+        $targetPId = $newProc.Id
+        $script:parPoll = 0
+        $script:parLsDetected = $false
+        $script:parWaitPostDetect = 0
+
         $restoreTimer = New-Object Windows.Threading.DispatcherTimer
-        $restoreTimer.Interval = [TimeSpan]::FromSeconds(5)
+        $restoreTimer.Interval = [TimeSpan]::FromSeconds(1)
         $restoreTimer.Add_Tick({
-            $restoreTimer.Stop()
-            [AgySwitchCredManager]::WriteCredential($CT, $curUser, $curBlob) | Out-Null
+            $script:parPoll++
+            if (-not $script:parLsDetected) {
+                $lsProc = Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object {
+                    $_.Name -like "language_server*" -and $_.ParentProcessId -eq $targetPId
+                }
+                if ($lsProc) {
+                    $script:parLsDetected = $true
+                }
+            } else {
+                $script:parWaitPostDetect++
+            }
+
+            # Once language_server is detected, wait 5 seconds to ensure it read the token, OR 25 seconds timeout
+            if (($script:parLsDetected -and $script:parWaitPostDetect -ge 5) -or ($script:parPoll -ge 25)) {
+                $restoreTimer.Stop()
+                [AgySwitchCredManager]::WriteCredential($CT, $curUser, $curBlob) | Out-Null
+                if ($e.txSt) {
+                    $e.txSt.Text = "PARALLEL READY: $($cleanName.ToUpper())"
+                    $e.txSt.Foreground = Br "#00FF88"
+                }
+                Refresh-Widget
+            }
         })
         $restoreTimer.Start()
     }
@@ -442,6 +473,22 @@ function script:LaunchParallel([string]$n) {
     } catch {}
 
     return "OK"
+}
+
+function script:StopParallel([string]$n) {
+    $cleanName = $n.ToLower().Trim()
+    $activeProcs = Get-ParallelProcesses
+    $target = $activeProcs | Where-Object { $_.IsParallel -and ($_.ProfileName -eq $cleanName) }
+    if ($target) {
+        $rootPid = $target.ProcessId
+        $children = Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.ParentProcessId -eq $rootPid }
+        foreach ($c in $children) {
+            Stop-Process -Id $c.ProcessId -Force -EA SilentlyContinue
+        }
+        Stop-Process -Id $rootPid -Force -EA SilentlyContinue
+        return "OK"
+    }
+    return "NOT_RUNNING"
 }
 
 function script:DelAcc([string]$n) {
@@ -1081,45 +1128,72 @@ function Refresh-Widget {
         [Windows.Controls.Grid]::SetColumn($badge, 2)
         $gridRow.Children.Add($badge) | Out-Null
 
-        # Col 3: Delete button
+        # Col 3: Action button (STOP if running, DELETE if idle and not active)
         if (-not $acc.active) {
-            $btnDel = New-Object Windows.Controls.Border
-            $btnDel.Width = 20; $btnDel.Height = 20
-            $btnDel.CornerRadius = [Windows.CornerRadius]::new(4)
-            $btnDel.Background = Br "#25FFFFFF"
-            $btnDel.Margin = [Windows.Thickness]::new(6,0,0,0)
-            $btnDel.Cursor = 'Hand'
-            $btnDel.VerticalAlignment = 'Center'
-            $btnDel.ToolTip = "Delete profile '$($acc.name)'"
-            $delTxt = New-Object Windows.Controls.TextBlock
-            $delTxt.Text = [char]0x2715
-            $delTxt.FontSize = 8; $delTxt.Foreground = Br "#90A4AE"
-            $delTxt.HorizontalAlignment = 'Center'; $delTxt.VerticalAlignment = 'Center'
-            $btnDel.Child = $delTxt
+            $btnAct = New-Object Windows.Controls.Border
+            $btnAct.Width = 20; $btnAct.Height = 20
+            $btnAct.CornerRadius = [Windows.CornerRadius]::new(4)
+            $btnAct.Margin = [Windows.Thickness]::new(6,0,0,0)
+            $btnAct.Cursor = 'Hand'
+            $btnAct.VerticalAlignment = 'Center'
 
-            $btnDel.Add_MouseEnter({ $this.Background = Br "#D5E53935"; $this.Child.Foreground = Br "#FFFFFF" }.GetNewClosure())
-            $btnDel.Add_MouseLeave({ $this.Background = Br "#25FFFFFF"; $this.Child.Foreground = Br "#90A4AE" }.GetNewClosure())
+            $actTxt = New-Object Windows.Controls.TextBlock
+            $actTxt.FontSize = 8
+            $actTxt.HorizontalAlignment = 'Center'; $actTxt.VerticalAlignment = 'Center'
 
-            $delTargetName = $acc.name
-            $btnDel.Add_PreviewMouseLeftButtonDown({
-                $_.Handled = $true
-                $conf = [Windows.MessageBox]::Show(
-                    "Delete profile '$delTargetName' from AGY RIG?",
-                    "Confirm Delete",
-                    [Windows.MessageBoxButton]::YesNo,
-                    [Windows.MessageBoxImage]::Warning
-                )
-                if ($conf -eq [Windows.MessageBoxResult]::Yes) {
-                    DelAcc $delTargetName
-                    $e.dropOverlay.Visibility = 'Collapsed'
-                    $e.txtArrow.Text = [char]0x25BC
-                    $e.txSt.Text = "DELETED: $delTargetName"
-                    $e.txSt.Foreground = Br "#FFA726"
+            if ($acc.status -eq "RUNNING") {
+                # Stop button (Square ■)
+                $btnAct.Background = Br "#30FF9800"
+                $btnAct.ToolTip = "Stop running parallel session for '$($acc.name)'"
+                $actTxt.Text = [char]0x25A0
+                $actTxt.Foreground = Br "#FFA726"
+                $btnAct.Child = $actTxt
+
+                $btnAct.Add_MouseEnter({ $this.Background = Br "#D5E65100"; $this.Child.Foreground = Br "#FFFFFF" }.GetNewClosure())
+                $btnAct.Add_MouseLeave({ $this.Background = Br "#30FF9800"; $this.Child.Foreground = Br "#FFA726" }.GetNewClosure())
+
+                $stopTargetName = $acc.name
+                $btnAct.Add_PreviewMouseLeftButtonDown({
+                    $_.Handled = $true
+                    $res = StopParallel $stopTargetName
+                    if ($res -eq "OK") {
+                        $e.txSt.Text = "STOPPED SESSION: $($stopTargetName.ToUpper())"
+                        $e.txSt.Foreground = Br "#FFA726"
+                    }
                     Refresh-Widget
-                }
-            }.GetNewClosure())
-            [Windows.Controls.Grid]::SetColumn($btnDel, 3)
-            $gridRow.Children.Add($btnDel) | Out-Null
+                }.GetNewClosure())
+            } else {
+                # Delete button (✕)
+                $btnAct.Background = Br "#25FFFFFF"
+                $btnAct.ToolTip = "Delete profile '$($acc.name)'"
+                $actTxt.Text = [char]0x2715
+                $actTxt.Foreground = Br "#90A4AE"
+                $btnAct.Child = $actTxt
+
+                $btnAct.Add_MouseEnter({ $this.Background = Br "#D5E53935"; $this.Child.Foreground = Br "#FFFFFF" }.GetNewClosure())
+                $btnAct.Add_MouseLeave({ $this.Background = Br "#25FFFFFF"; $this.Child.Foreground = Br "#90A4AE" }.GetNewClosure())
+
+                $delTargetName = $acc.name
+                $btnAct.Add_PreviewMouseLeftButtonDown({
+                    $_.Handled = $true
+                    $conf = [Windows.MessageBox]::Show(
+                        "Delete profile '$delTargetName' from AGY RIG?",
+                        "Confirm Delete",
+                        [Windows.MessageBoxButton]::YesNo,
+                        [Windows.MessageBoxImage]::Warning
+                    )
+                    if ($conf -eq [Windows.MessageBoxResult]::Yes) {
+                        DelAcc $delTargetName
+                        $e.dropOverlay.Visibility = 'Collapsed'
+                        $e.txtArrow.Text = [char]0x25BC
+                        $e.txSt.Text = "DELETED: $delTargetName"
+                        $e.txSt.Foreground = Br "#FFA726"
+                        Refresh-Widget
+                    }
+                }.GetNewClosure())
+            }
+            [Windows.Controls.Grid]::SetColumn($btnAct, 3)
+            $gridRow.Children.Add($btnAct) | Out-Null
         }
 
         $row.Child = $gridRow
@@ -1155,14 +1229,20 @@ function Refresh-Widget {
         $e.pnlAccList.Children.Add($row) | Out-Null
     }
 
-    # Initial selection
-    if ($allAccs.Count -gt 0) {
-        $first = $allAccs[0]
-        $script:selectedAccount = $first
-        $e.txtAccName.Text = $first.name.ToUpper()
-        $e.txtEmail.Text = $first.email
-        $e.dotSelected.Fill = if ($first.active) { Br "#00FF88" } elseif ($first.status -eq "RUNNING") { Br "#00E5FF" } else { Br "#78909C" }
-        Update-ActionButtons $first $activeProcs
+    # Selection: maintain user selection if valid, otherwise fallback to primary/first
+    $targetSelect = $null
+    if ($script:selectedAccount -and $script:selectedAccount.name) {
+        $targetSelect = $allAccs | Where-Object { $_.name.ToLower() -eq $script:selectedAccount.name.ToLower() }
+    }
+    if (-not $targetSelect -and $allAccs.Count -gt 0) {
+        $targetSelect = $allAccs[0]
+    }
+    if ($targetSelect) {
+        $script:selectedAccount = $targetSelect
+        $e.txtAccName.Text = $targetSelect.name.ToUpper()
+        $e.txtEmail.Text = $targetSelect.email
+        $e.dotSelected.Fill = if ($targetSelect.active) { Br "#00FF88" } elseif ($targetSelect.status -eq "RUNNING") { Br "#00E5FF" } else { Br "#78909C" }
+        Update-ActionButtons $targetSelect $activeProcs
     } else {
         $e.txtAccName.Text = "(not logged in)"
         $e.txtEmail.Text = "(no active session)"
@@ -1500,20 +1580,31 @@ $e.btnParalel.Add_Click({
     $activeProcs = Get-ParallelProcesses
     $running = $activeProcs | Where-Object { $_.IsParallel -and ($_.ProfileName -eq $cleanName) }
 
-    if ($running -and $running.ProcessObj -and $running.ProcessObj.MainWindowHandle -ne [IntPtr]::Zero) {
-        [Win32WindowHelper]::ShowWindowAsync($running.ProcessObj.MainWindowHandle, 9) | Out-Null
-        [Win32WindowHelper]::SetForegroundWindow($running.ProcessObj.MainWindowHandle) | Out-Null
+    if ($running) {
+        $focused = $false
+        if ($running.ProcessObj -and $running.ProcessObj.MainWindowHandle -ne [IntPtr]::Zero) {
+            [Win32WindowHelper]::ShowWindowAsync($running.ProcessObj.MainWindowHandle, 9) | Out-Null
+            [Win32WindowHelper]::SetForegroundWindow($running.ProcessObj.MainWindowHandle) | Out-Null
+            $focused = $true
+        }
+        if (-not $focused) {
+            $exe = Find-AntigravityExe
+            $profDir = Join-Path $env:USERPROFILE ".gemini\antigravity\profiles\$cleanName"
+            $userDir = Join-Path $profDir "userdata"
+            if ($exe -and (Test-Path $userDir)) {
+                Start-Process $exe -ArgumentList "--user-data-dir=`"$userDir`""
+            }
+        }
         $e.txSt.Text = "FOCUSED: $($tag.name.ToUpper())"
         $e.txSt.Foreground = Br "#00E5FF"
     } else {
-        $e.txSt.Text = "LAUNCHING PARALLEL: $($tag.name.ToUpper())..."
-        $e.txSt.Foreground = Br "#FFA726"
+        $e.txSt.Text = "AUTHENTICATING & LAUNCHING: $($tag.name.ToUpper())..."
+        $e.txSt.Foreground = Br "#00E5FF"
         $w.Dispatcher.Invoke([Action]{}, 'Render')
 
         $res = LaunchParallel $cleanName
         if ($res -eq "OK") {
-            $e.txSt.Text = "PARALLEL LAUNCHED: $($tag.name.ToUpper())"
-            $e.txSt.Foreground = Br "#00FF88"
+            # Status will update to PARALLEL READY once language_server has verified authentication
         } elseif ($res -eq "NO_EXE") {
             $e.txSt.Text = "ERROR: Antigravity.exe not found"
             $e.txSt.Foreground = Br "#EF5350"
@@ -1523,7 +1614,6 @@ $e.btnParalel.Add_Click({
         }
     }
 
-    Start-Sleep -Milliseconds 400
     Refresh-Widget
 })
 

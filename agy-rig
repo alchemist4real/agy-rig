@@ -934,6 +934,19 @@ def cmd_parallel(subcmd: str, name: str):
             print(f"  {Color.RED}[ERROR] Specify profile name to launch.{Color.RESET}")
             return
         clean = name.strip().lower()
+        acc_file = os.path.join(ACCOUNTS_DIR, f"{clean}.json")
+        if not os.path.exists(acc_file):
+            acc_file = os.path.join(ACCOUNTS_DIR, f"{clean}.dat")
+        if not os.path.exists(acc_file):
+            print(f"  {Color.RED}[ERROR] Profile '{clean}' not found. Run 'agy-rig list'.{Color.RESET}")
+            return
+
+        with open(acc_file, "r", encoding="utf-8") as fp:
+            data = json.load(fp)
+
+        target_cred = data.get("credential", "")
+        target_user = data.get("user", "antigravity")
+
         prof_dir = os.path.join(PROFILES_DIR, clean, "userdata")
         os.makedirs(prof_dir, exist_ok=True)
         init_file = os.path.join(prof_dir, "app_storage.json")
@@ -942,9 +955,22 @@ def cmd_parallel(subcmd: str, name: str):
                 json.dump({"ide-install-wizard-shown": "true"}, fp)
 
         exe = find_antigravity_bin()
+        cur_cred = CredentialStore.read()
+        cur_user = "antigravity"
+
+        print(f"  {Color.YELLOW}>> Injecting credentials for '{clean}' ({data.get('email')})...{Color.RESET}")
+        CredentialStore.write(target_cred, target_user)
+
         cmd = [exe, f"--user-data-dir={prof_dir}"]
-        subprocess.Popen(cmd, start_new_session=True)
-        print(f"\n  {Color.GREEN}[OK] Parallel session for '{clean}' launched successfully.{Color.RESET}\n")
+        proc = subprocess.Popen(cmd, start_new_session=True)
+        print(f"\n  {Color.GREEN}[OK] Parallel session for '{clean}' launched successfully.{Color.RESET}")
+
+        # Restore credentials after parallel session authenticates
+        if cur_cred and cur_cred != target_cred:
+            print(f"  {Color.YELLOW}>> Synchronizing authentication with parallel instance...{Color.RESET}")
+            time.sleep(12)
+            CredentialStore.write(cur_cred, cur_user)
+            print(f"  {Color.GRAY}[OK] Primary credentials restored to active state.{Color.RESET}\n")
     elif subcmd in ["focus", "switch"]:
         if not name:
             print(f"  {Color.RED}[ERROR] Specify profile name to focus.{Color.RESET}")

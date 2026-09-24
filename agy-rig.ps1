@@ -713,8 +713,12 @@ function Launch-ParallelAccount {
     $userDir = Join-Path $profDir "userdata"
     if (-not (Test-Path $userDir)) {
         New-Item -ItemType Directory -Path $userDir -Force | Out-Null
+    }
+    $storageFile = Join-Path $userDir "app_storage.json"
+    if (-not (Test-Path $storageFile)) {
         $initStorage = @{ "ide-install-wizard-shown" = "true" } | ConvertTo-Json
-        Set-Content -Path (Join-Path $userDir "app_storage.json") -Value $initStorage -Encoding UTF8
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($storageFile, $initStorage, $utf8NoBom)
         Write-Host "  [OK] New profile directory created: $userDir" -ForegroundColor Green
     }
 
@@ -731,22 +735,37 @@ function Launch-ParallelAccount {
 
     [AgySwitchCredManager]::WriteCredential($CRED_TARGET, $targetUser, $plainBlob) | Out-Null
 
-    Write-Host "  >> Starting parallel Antigravity instance..." -ForegroundColor Yellow
-    Start-Process $exePath -ArgumentList "--user-data-dir=`"$userDir`""
-
     # MCP tokens
     $mcpBackup = Join-Path $ACCOUNTS_DIR "$($cleanName)_mcp.dat"
     $mcpTarget = Join-Path $env:USERPROFILE ".gemini\antigravity\mcp_oauth_tokens.json"
     if (Test-Path $mcpBackup) {
         try {
             $mcpPlain = Unprotect-String (Get-Content $mcpBackup -Raw)
-            Set-Content -Path $mcpTarget -Value $mcpPlain -Encoding UTF8
+            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText($mcpTarget, $mcpPlain, $utf8NoBom)
         } catch {}
     }
 
-    # Restore credential after delay
+    Write-Host "  >> Starting parallel Antigravity instance..." -ForegroundColor Yellow
+    $newProc = Start-Process $exePath -ArgumentList "--user-data-dir=`"$userDir`"" -PassThru
+
+    # Restore credential after parallel session's language_server authenticates
     if ($curBlob -and ($curBlob -ne $plainBlob)) {
-        Start-Sleep -Seconds 4
+        Write-Host "  >> Synchronizing authentication with parallel instance..." -ForegroundColor Yellow
+        $targetPId = $newProc.Id
+        $startTime = [DateTime]::UtcNow
+        $lsDetected = $false
+        while (([DateTime]::UtcNow - $startTime).TotalSeconds -lt 25) {
+            Start-Sleep -Milliseconds 800
+            $lsProc = Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object {
+                $_.Name -like "language_server*" -and $_.ParentProcessId -eq $targetPId
+            }
+            if ($lsProc) {
+                $lsDetected = $true
+                Start-Sleep -Seconds 5
+                break
+            }
+        }
         [AgySwitchCredManager]::WriteCredential($CRED_TARGET, $curUser, $curBlob) | Out-Null
         Write-Host "  [OK] Primary credentials restored to active state." -ForegroundColor DarkGray
     }
@@ -983,10 +1002,22 @@ function Switch-ParallelSession {
     $activeProcs = Get-ParallelProcesses
     $running = $activeProcs | Where-Object { $_.IsParallel -and ($_.ProfileName -eq $cleanName) }
 
-    if ($running -and $running.ProcessObj -and $running.ProcessObj.MainWindowHandle -ne [IntPtr]::Zero) {
+    if ($running) {
         Write-Host "  [OK] Profile '$cleanName' is already running (PID: $($running.ProcessId)). Bringing window to front..." -ForegroundColor Green
-        [Win32WindowHelper]::ShowWindowAsync($running.ProcessObj.MainWindowHandle, 9) | Out-Null
-        [Win32WindowHelper]::SetForegroundWindow($running.ProcessObj.MainWindowHandle) | Out-Null
+        $focused = $false
+        if ($running.ProcessObj -and $running.ProcessObj.MainWindowHandle -ne [IntPtr]::Zero) {
+            [Win32WindowHelper]::ShowWindowAsync($running.ProcessObj.MainWindowHandle, 9) | Out-Null
+            [Win32WindowHelper]::SetForegroundWindow($running.ProcessObj.MainWindowHandle) | Out-Null
+            $focused = $true
+        }
+        if (-not $focused) {
+            $exePath = Find-AntigravityExe
+            $profDir = Join-Path $PROFILES_DIR $cleanName
+            $userDir = Join-Path $profDir "userdata"
+            if ($exePath -and (Test-Path $userDir)) {
+                Start-Process $exePath -ArgumentList "--user-data-dir=`"$userDir`""
+            }
+        }
         return
     }
 
